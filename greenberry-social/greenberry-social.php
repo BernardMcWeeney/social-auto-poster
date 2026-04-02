@@ -35,7 +35,9 @@ spl_autoload_register( function ( $class ) {
 	$file     = array_pop( $parts );
 
 	// Convert CamelCase class name to kebab-case filename.
-	$file = 'class-' . strtolower( preg_replace( '/([a-z])([A-Z])/', '$1-$2', $file ) ) . '.php';
+	// Also replace underscores with hyphens (e.g. Provider_Registry → provider-registry).
+	$file = strtolower( preg_replace( '/([a-z])([A-Z])/', '$1-$2', $file ) );
+	$file = 'class-' . str_replace( '_', '-', $file ) . '.php';
 
 	$path = GBSOCIAL_DIR . 'includes/';
 	if ( ! empty( $parts ) ) {
