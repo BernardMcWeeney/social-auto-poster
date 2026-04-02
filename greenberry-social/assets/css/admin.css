@@ -1,0 +1,105 @@
+/* Greenberry Social — Admin Styles */
+
+.gbsocial-wrap {
+	max-width: 900px;
+}
+
+.gbsocial-tab-content {
+	margin-top: 20px;
+}
+
+/* Provider cards */
+.gbsocial-providers {
+	display: grid;
+	gap: 16px;
+}
+
+.gbsocial-provider-card {
+	background: #fff;
+	border: 1px solid #c3c4c7;
+	border-radius: 4px;
+	padding: 16px 20px;
+}
+
+.gbsocial-provider-card.connected {
+	border-left: 4px solid #00a32a;
+}
+
+.gbsocial-provider-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	margin-bottom: 12px;
+}
+
+.gbsocial-provider-header h3 {
+	margin: 0;
+	font-size: 15px;
+}
+
+/* Badges */
+.gbsocial-badge {
+	display: inline-block;
+	padding: 2px 8px;
+	border-radius: 3px;
+	font-size: 12px;
+	font-weight: 600;
+}
+
+.gbsocial-badge-connected {
+	background: #edfaef;
+	color: #00a32a;
+}
+
+.gbsocial-badge-disconnected {
+	background: #f0f0f1;
+	color: #646970;
+}
+
+/* Actions */
+.gbsocial-provider-actions {
+	display: flex;
+	gap: 8px;
+}
+
+.gbsocial-btn-disconnect {
+	color: #d63638 !important;
+	border-color: #d63638 !important;
+}
+
+.gbsocial-btn-disconnect:hover {
+	background: #d63638 !important;
+	color: #fff !important;
+}
+
+/* Credential forms */
+.gbsocial-credentials-form {
+	margin-top: 8px;
+}
+
+.gbsocial-credentials-form .form-table th {
+	padding: 8px 10px 8px 0;
+	width: 140px;
+	font-weight: 500;
+}
+
+.gbsocial-credentials-form .form-table td {
+	padding: 8px 0;
+}
+
+/* OAuth section */
+.gbsocial-oauth-section {
+	margin-bottom: 16px;
+	padding-bottom: 16px;
+	border-bottom: 1px solid #f0f0f1;
+}
+
+/* Meta box */
+.gbsocial-metabox label {
+	cursor: pointer;
+}
+
+.gbsocial-reshare-status {
+	margin-left: 8px;
+	font-size: 13px;
+}

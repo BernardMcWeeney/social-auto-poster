@@ -1,0 +1,17 @@
+name = "social-oauth-broker"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+
+# Deploy to: social-oauth.greenberry.ie
+# routes = [{ pattern = "social-oauth.greenberry.ie/*", zone_name = "greenberry.ie" }]
+
+# Secrets (set via `wrangler secret put`):
+# BROKER_SECRET           — shared with WordPress sites for HMAC signing
+# FACEBOOK_APP_ID         — Facebook OAuth app ID
+# FACEBOOK_APP_SECRET     — Facebook OAuth app secret
+# LINKEDIN_CLIENT_ID      — LinkedIn OAuth client ID
+# LINKEDIN_CLIENT_SECRET  — LinkedIn OAuth client secret
+# THREADS_APP_ID          — Threads/Meta OAuth app ID
+# THREADS_APP_SECRET      — Threads/Meta OAuth app secret
+# TUMBLR_CONSUMER_KEY     — Tumblr OAuth consumer key
+# TUMBLR_CONSUMER_SECRET  — Tumblr OAuth consumer secret
