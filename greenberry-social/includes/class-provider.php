@@ -118,9 +118,20 @@ abstract class Provider {
 	}
 
 	/**
-	 * Get the featured image URL for a post (used by several providers).
+	 * Get the social image URL for a post.
+	 *
+	 * Checks for custom social image first, then falls back to featured image.
 	 */
 	protected function get_featured_image_url( \WP_Post $post ): ?string {
+		// Custom social image takes priority.
+		$social_image_id = (int) get_post_meta( $post->ID, '_gbsocial_social_image', true );
+		if ( $social_image_id ) {
+			$url = wp_get_attachment_image_url( $social_image_id, 'large' );
+			if ( $url ) {
+				return $url;
+			}
+		}
+
 		$thumb_id = get_post_thumbnail_id( $post );
 		if ( ! $thumb_id ) {
 			return null;

@@ -1,14 +1,17 @@
 /* Greenberry Social — Admin Styles */
 
+/* ── Layout ───────────────────────────────────────────── */
+
 .gbsocial-wrap {
-	max-width: 900px;
+	max-width: 960px;
 }
 
 .gbsocial-tab-content {
 	margin-top: 20px;
 }
 
-/* Provider cards */
+/* ── Provider Cards ───────────────────────────────────── */
+
 .gbsocial-providers {
 	display: grid;
 	gap: 16px;
@@ -17,33 +20,92 @@
 .gbsocial-provider-card {
 	background: #fff;
 	border: 1px solid #c3c4c7;
-	border-radius: 4px;
-	padding: 16px 20px;
+	border-radius: 8px;
+	padding: 0;
+	overflow: hidden;
+	transition: box-shadow 0.15s ease;
+}
+
+.gbsocial-provider-card:hover {
+	box-shadow: 0 1px 6px rgba(0, 0, 0, 0.08);
 }
 
 .gbsocial-provider-card.connected {
 	border-left: 4px solid #00a32a;
 }
 
+/* Provider header */
 .gbsocial-provider-header {
 	display: flex;
-	justify-content: space-between;
 	align-items: center;
-	margin-bottom: 12px;
+	gap: 12px;
+	padding: 16px 20px;
+	border-bottom: 1px solid #f0f0f1;
+	cursor: pointer;
 }
 
-.gbsocial-provider-header h3 {
-	margin: 0;
+.gbsocial-provider-card.connected .gbsocial-provider-header {
+	cursor: default;
+}
+
+.gbsocial-provider-icon {
+	width: 40px;
+	height: 40px;
+	border-radius: 8px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	color: #fff;
+	font-size: 18px;
+	font-weight: 700;
+}
+
+.gbsocial-provider-icon--bluesky { background: #0085ff; }
+.gbsocial-provider-icon--mastodon { background: #6364ff; }
+.gbsocial-provider-icon--facebook { background: #1877f2; }
+.gbsocial-provider-icon--linkedin { background: #0a66c2; }
+.gbsocial-provider-icon--threads { background: #000000; }
+.gbsocial-provider-icon--tumblr { background: #001935; }
+
+.gbsocial-provider-info {
+	flex: 1;
+	min-width: 0;
+}
+
+.gbsocial-provider-info h3 {
+	margin: 0 0 2px;
 	font-size: 15px;
+	font-weight: 600;
+	color: #1d2327;
 }
 
-/* Badges */
+.gbsocial-provider-description {
+	font-size: 13px;
+	color: #646970;
+	margin: 0;
+}
+
+.gbsocial-provider-account {
+	font-size: 13px;
+	color: #2271b1;
+	margin: 0;
+	font-weight: 500;
+}
+
+.gbsocial-status {
+	flex-shrink: 0;
+}
+
+/* ── Badges ───────────────────────────────────────────── */
+
 .gbsocial-badge {
 	display: inline-block;
-	padding: 2px 8px;
-	border-radius: 3px;
+	padding: 3px 10px;
+	border-radius: 12px;
 	font-size: 12px;
 	font-weight: 600;
+	line-height: 1.4;
 }
 
 .gbsocial-badge-connected {
@@ -52,14 +114,21 @@
 }
 
 .gbsocial-badge-disconnected {
-	background: #f0f0f1;
+	background: #f6f7f7;
 	color: #646970;
 }
 
-/* Actions */
+/* ── Provider Body ────────────────────────────────────── */
+
+.gbsocial-provider-body {
+	padding: 16px 20px;
+}
+
+/* Connected state */
 .gbsocial-provider-actions {
 	display: flex;
 	gap: 8px;
+	align-items: center;
 }
 
 .gbsocial-btn-disconnect {
@@ -72,29 +141,244 @@
 	color: #fff !important;
 }
 
-/* Credential forms */
+/* ── OAuth Section ────────────────────────────────────── */
+
+.gbsocial-oauth-section {
+	padding: 20px;
+	text-align: center;
+	background: #f6f7f7;
+}
+
+.gbsocial-oauth-section .button-primary {
+	padding: 6px 24px;
+	height: auto;
+	font-size: 14px;
+}
+
+.gbsocial-oauth-section .gbsocial-manual-toggle {
+	display: inline-block;
+	margin-top: 10px;
+	font-size: 13px;
+	color: #646970;
+	cursor: pointer;
+	text-decoration: underline;
+}
+
+.gbsocial-oauth-section .gbsocial-manual-toggle:hover {
+	color: #2271b1;
+}
+
+/* ── Credential Forms ─────────────────────────────────── */
+
 .gbsocial-credentials-form {
-	margin-top: 8px;
+	padding: 16px 20px;
+	border-top: 1px solid #f0f0f1;
+}
+
+.gbsocial-credentials-form.hidden {
+	display: none;
+}
+
+.gbsocial-credentials-form .form-table {
+	margin-top: 0;
 }
 
 .gbsocial-credentials-form .form-table th {
 	padding: 8px 10px 8px 0;
 	width: 140px;
 	font-weight: 500;
+	font-size: 13px;
 }
 
 .gbsocial-credentials-form .form-table td {
 	padding: 8px 0;
 }
 
-/* OAuth section */
-.gbsocial-oauth-section {
-	margin-bottom: 16px;
-	padding-bottom: 16px;
-	border-bottom: 1px solid #f0f0f1;
+/* ── Social Preview Cards ─────────────────────────────── */
+
+.gbsocial-preview {
+	border: 1px solid #dcdcde;
+	border-radius: 8px;
+	overflow: hidden;
+	margin: 12px 0;
+	max-width: 500px;
 }
 
-/* Meta box */
+.gbsocial-preview-image {
+	width: 100%;
+	height: 160px;
+	object-fit: cover;
+	display: block;
+	background: #f0f0f1;
+}
+
+.gbsocial-preview-body {
+	padding: 12px 14px;
+}
+
+.gbsocial-preview-domain {
+	font-size: 11px;
+	color: #646970;
+	text-transform: uppercase;
+	letter-spacing: 0.5px;
+	margin: 0 0 4px;
+}
+
+.gbsocial-preview-title {
+	font-size: 14px;
+	font-weight: 600;
+	color: #1d2327;
+	margin: 0 0 4px;
+	line-height: 1.3;
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+}
+
+.gbsocial-preview-excerpt {
+	font-size: 13px;
+	color: #646970;
+	margin: 0;
+	line-height: 1.4;
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+}
+
+/* ── Character Counter ────────────────────────────────── */
+
+.gbsocial-char-count {
+	text-align: right;
+	font-size: 12px;
+	color: #646970;
+	margin-top: 4px;
+}
+
+.gbsocial-char-count.over-limit {
+	color: #d63638;
+	font-weight: 600;
+}
+
+/* ── Share Log ────────────────────────────────────────── */
+
+.gbsocial-share-log {
+	margin-top: 12px;
+}
+
+.gbsocial-share-log summary {
+	font-size: 13px;
+	cursor: pointer;
+	color: #2271b1;
+	font-weight: 500;
+}
+
+.gbsocial-share-log ul {
+	margin: 8px 0 0;
+	padding: 0;
+	list-style: none;
+}
+
+.gbsocial-share-log li {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 6px 0;
+	border-bottom: 1px solid #f6f7f7;
+	font-size: 12px;
+}
+
+.gbsocial-share-log li:last-child {
+	border-bottom: none;
+}
+
+.gbsocial-log-provider {
+	font-weight: 600;
+	min-width: 80px;
+}
+
+.gbsocial-log-time {
+	color: #646970;
+	min-width: 120px;
+}
+
+.gbsocial-log-success {
+	color: #00a32a;
+}
+
+.gbsocial-log-error {
+	color: #d63638;
+}
+
+/* ── Posts List Column ────────────────────────────────── */
+
+.column-gbsocial_shared {
+	width: 100px;
+}
+
+.gbsocial-shared-badges {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 3px;
+}
+
+.gbsocial-shared-pip {
+	display: inline-block;
+	width: 22px;
+	height: 22px;
+	border-radius: 4px;
+	color: #fff;
+	font-size: 10px;
+	font-weight: 700;
+	text-align: center;
+	line-height: 22px;
+	text-decoration: none;
+}
+
+.gbsocial-shared-pip--success { opacity: 1; }
+.gbsocial-shared-pip--error { opacity: 0.5; }
+
+.gbsocial-shared-pip--bluesky { background: #0085ff; }
+.gbsocial-shared-pip--mastodon { background: #6364ff; }
+.gbsocial-shared-pip--facebook { background: #1877f2; }
+.gbsocial-shared-pip--linkedin { background: #0a66c2; }
+.gbsocial-shared-pip--threads { background: #000; }
+.gbsocial-shared-pip--tumblr { background: #001935; }
+
+/* ── Schedule ─────────────────────────────────────────── */
+
+.gbsocial-schedule-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-top: 8px;
+}
+
+.gbsocial-schedule-row input[type="datetime-local"] {
+	font-size: 13px;
+}
+
+/* ── Settings Tab ─────────────────────────────────────── */
+
+.gbsocial-settings-section {
+	background: #fff;
+	border: 1px solid #c3c4c7;
+	border-radius: 8px;
+	padding: 20px 24px;
+	margin-bottom: 16px;
+}
+
+.gbsocial-settings-section h2 {
+	margin: 0 0 16px;
+	font-size: 15px;
+	font-weight: 600;
+	padding: 0;
+	border: none;
+}
+
+/* ── Meta box enhancements ────────────────────────────── */
+
 .gbsocial-metabox label {
 	cursor: pointer;
 }
@@ -102,4 +386,74 @@
 .gbsocial-reshare-status {
 	margin-left: 8px;
 	font-size: 13px;
+}
+
+.gbsocial-metabox-section {
+	margin-bottom: 12px;
+	padding-bottom: 12px;
+	border-bottom: 1px solid #f0f0f1;
+}
+
+.gbsocial-metabox-section:last-child {
+	border-bottom: none;
+	margin-bottom: 0;
+	padding-bottom: 0;
+}
+
+.gbsocial-metabox-section-title {
+	font-weight: 600;
+	font-size: 13px;
+	margin: 0 0 6px;
+	color: #1d2327;
+}
+
+/* Platform message tabs in meta box */
+.gbsocial-platform-tabs {
+	display: flex;
+	gap: 0;
+	border-bottom: 1px solid #c3c4c7;
+	margin-bottom: 8px;
+}
+
+.gbsocial-platform-tab {
+	padding: 6px 12px;
+	font-size: 12px;
+	font-weight: 500;
+	color: #646970;
+	cursor: pointer;
+	border: 1px solid transparent;
+	border-bottom: none;
+	border-radius: 4px 4px 0 0;
+	background: none;
+	margin-bottom: -1px;
+}
+
+.gbsocial-platform-tab:hover {
+	color: #2271b1;
+}
+
+.gbsocial-platform-tab.active {
+	background: #fff;
+	color: #1d2327;
+	border-color: #c3c4c7;
+}
+
+.gbsocial-platform-panel {
+	display: none;
+}
+
+.gbsocial-platform-panel.active {
+	display: block;
+}
+
+/* ── Responsive ───────────────────────────────────────── */
+
+@media screen and (max-width: 782px) {
+	.gbsocial-provider-header {
+		flex-wrap: wrap;
+	}
+
+	.gbsocial-provider-actions {
+		flex-wrap: wrap;
+	}
 }

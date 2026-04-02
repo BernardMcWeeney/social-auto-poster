@@ -33,7 +33,11 @@ final class Meta_Tags {
 		$description = has_excerpt( $post ) ? $post->post_excerpt : wp_trim_words( strip_tags( $post->post_content ), 30, '…' );
 		$url         = get_permalink( $post );
 		$site_name   = get_bloginfo( 'name' );
-		$image       = get_the_post_thumbnail_url( $post, 'large' );
+		// Custom social image takes priority over featured image.
+		$social_image_id = (int) get_post_meta( $post->ID, '_gbsocial_social_image', true );
+		$image = $social_image_id
+			? wp_get_attachment_image_url( $social_image_id, 'large' )
+			: get_the_post_thumbnail_url( $post, 'large' );
 
 		echo "\n<!-- Greenberry Social OG Tags -->\n";
 
