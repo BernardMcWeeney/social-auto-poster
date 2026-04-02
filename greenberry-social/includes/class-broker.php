@@ -1,0 +1,172 @@
+<?php
+
+namespace Greenberry\Social;
+
+/**
+ * Manages communication with the Greenberry OAuth broker.
+ *
+ * On plugin activation the site registers itself with the broker.
+ * The broker returns a site_secret used for HMAC signing during OAuth flows.
+ * Users never see or configure any of this — it's fully automatic.
+ */
+final class Broker {
+
+	/**
+	 * Register this WordPress site with the broker.
+	 *
+	 * Called on plugin activation. Generates a site key, sends it to
+	 * the broker, and stores the shared secret locally (encrypted).
+	 */
+	public static function register_site(): void {
+		// Already registered?
+		if ( self::get_site_secret() ) {
+			return;
+		}
+
+		$site_url = site_url();
+		$site_key = wp_generate_password( 40, false );
+
+		$response = wp_remote_post( GBSOCIAL_BROKER_URL . '/register', [
+			'timeout' => 15,
+			'headers' => [ 'Content-Type' => 'application/json' ],
+			'body'    => wp_json_encode( [
+				'site_url' => $site_url,
+				'site_key' => $site_key,
+				'callback' => rest_url( 'gbsocial/v1/oauth/callback' ),
+			] ),
+		] );
+
+		if ( is_wp_error( $response ) ) {
+			// Will retry on next admin page load.
+			set_transient( 'gbsocial_registration_failed', true, HOUR_IN_SECONDS );
+			return;
+		}
+
+		$code = wp_remote_retrieve_response_code( $response );
+		$body = json_decode( wp_remote_retrieve_body( $response ), true );
+
+		if ( 200 === $code && ! empty( $body['site_secret'] ) ) {
+			// Store site_secret encrypted.
+			$encrypted = Crypto::encrypt( $body['site_secret'] );
+			update_option( 'gbsocial_site_secret', $encrypted, false );
+
+			// Store site_id for future reference.
+			update_option( 'gbsocial_site_id', sanitize_text_field( $body['site_id'] ?? '' ), false );
+
+			delete_transient( 'gbsocial_registration_failed' );
+		} else {
+			set_transient( 'gbsocial_registration_failed', true, HOUR_IN_SECONDS );
+		}
+	}
+
+	/**
+	 * Get the site secret (decrypted).
+	 */
+	public static function get_site_secret(): ?string {
+		$encrypted = get_option( 'gbsocial_site_secret', '' );
+		if ( empty( $encrypted ) ) {
+			return null;
+		}
+		$decrypted = Crypto::decrypt( $encrypted );
+		return $decrypted ?: null;
+	}
+
+	/**
+	 * Whether the site is registered with the broker.
+	 */
+	public static function is_registered(): bool {
+		return null !== self::get_site_secret();
+	}
+
+	/**
+	 * Get the OAuth authorize URL for a provider.
+	 * User clicks this → goes to broker → broker sends to Facebook/etc.
+	 */
+	public static function get_oauth_url( string $provider_id ): ?string {
+		$secret = self::get_site_secret();
+		if ( ! $secret ) {
+			return null;
+		}
+
+		$site_id  = get_option( 'gbsocial_site_id', '' );
+		$nonce    = wp_create_nonce( 'gbsocial_oauth_' . $provider_id );
+		$timestamp = time();
+
+		// Build state: provider|nonce|timestamp
+		$state_data = $provider_id . '|' . $nonce . '|' . $timestamp;
+		$sig        = Crypto::hmac( $state_data, $secret );
+		$state      = base64_encode( $state_data . '|' . $sig );
+
+		return GBSOCIAL_BROKER_URL . '/auth/' . $provider_id . '?' . http_build_query( [
+			'site_id'      => $site_id,
+			'state'        => $state,
+			'callback_url' => rest_url( 'gbsocial/v1/oauth/callback' ),
+		] );
+	}
+
+	/**
+	 * Verify a callback from the broker.
+	 *
+	 * @return array{provider: string, credentials: array}|WP_Error
+	 */
+	public static function verify_callback( string $state_b64, string $token_data_b64, string $signature ) {
+		$secret = self::get_site_secret();
+		if ( ! $secret ) {
+			return new \WP_Error( 'not_registered', 'Site not registered with broker.' );
+		}
+
+		// Decode state.
+		$state_raw = base64_decode( $state_b64 );
+		$parts     = explode( '|', $state_raw );
+		if ( count( $parts ) < 4 ) {
+			return new \WP_Error( 'invalid_state', 'Malformed OAuth state.' );
+		}
+
+		$provider_id = $parts[0];
+		$nonce       = $parts[1];
+		$timestamp   = (int) $parts[2];
+		$state_sig   = $parts[3];
+
+		// Check expiry (10 minutes).
+		if ( time() - $timestamp > 600 ) {
+			return new \WP_Error( 'expired', 'OAuth session expired. Please try again.' );
+		}
+
+		// Verify state HMAC.
+		$expected_data = $provider_id . '|' . $nonce . '|' . $timestamp;
+		if ( ! Crypto::hmac_verify( $expected_data, $state_sig, $secret ) ) {
+			return new \WP_Error( 'state_tampered', 'State signature mismatch.' );
+		}
+
+		// Verify callback signature from broker.
+		if ( ! Crypto::hmac_verify( $token_data_b64, $signature, $secret ) ) {
+			return new \WP_Error( 'sig_tampered', 'Callback signature mismatch.' );
+		}
+
+		// Verify WordPress nonce.
+		if ( ! wp_verify_nonce( $nonce, 'gbsocial_oauth_' . $provider_id ) ) {
+			return new \WP_Error( 'nonce_failed', 'Nonce verification failed.' );
+		}
+
+		// Decode credentials.
+		$credentials = json_decode( base64_decode( $token_data_b64 ), true );
+		if ( ! $credentials ) {
+			return new \WP_Error( 'bad_token', 'Could not decode credentials.' );
+		}
+
+		return [
+			'provider'    => $provider_id,
+			'credentials' => $credentials,
+		];
+	}
+
+	/**
+	 * Retry registration if it failed during activation.
+	 * Called from admin_init.
+	 */
+	public static function maybe_retry_registration(): void {
+		if ( ! self::is_registered() && current_user_can( 'manage_options' ) ) {
+			self::register_site();
+		}
+	}
+}

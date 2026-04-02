@@ -2,50 +2,34 @@
 
 A lightweight WordPress plugin for auto-sharing posts to social media. **~120KB** — a 99.3% reduction from Jetpack Social's 16MB.
 
-Zero Jetpack dependencies. Zero Composer. Drop in and activate.
+Zero Jetpack dependencies. Zero Composer. Zero configuration. Install, activate, click Connect.
 
 ## Supported Platforms
 
-| Provider | Auth Method | Broker Needed? |
-|----------|------------|----------------|
-| **Bluesky** | App Password | No |
-| **Mastodon** | Access Token | No |
-| **Facebook** | OAuth 2.0 / Manual Token | Optional |
-| **LinkedIn** | OAuth 2.0 / Manual Token | Optional |
-| **Threads** | OAuth 2.0 / Manual Token | Optional |
-| **Tumblr** | OAuth 2.0 / Manual Token | Optional |
+| Provider | Connection Method |
+|----------|------------------|
+| **Bluesky** | Enter app password (one field) |
+| **Mastodon** | Enter access token (any instance) |
+| **Facebook** | Click "Connect with Facebook" |
+| **LinkedIn** | Click "Connect with LinkedIn" |
+| **Threads** | Click "Connect with Threads" |
+| **Tumblr** | Click "Connect with Tumblr" |
 
 ## Quick Start
 
-1. Copy `greenberry-social/` to `wp-content/plugins/`
+1. Install the plugin (upload `greenberry-social/` or install from marketplace)
 2. Activate in WordPress admin
 3. Go to **Settings → Greenberry Social**
-4. Connect your social accounts
+4. Click **Connect** for each platform you want — that's it
 
-### Bluesky / Mastodon (no broker needed)
-Enter your credentials directly — app password (Bluesky) or access token (Mastodon).
+No API keys. No wp-config editing. No broker secrets. Just like Jetpack, but without the 16MB of bloat.
 
-### Facebook / LinkedIn / Threads / Tumblr (OAuth)
+### How it works
 
-**Option A — With the Cloudflare Worker broker (recommended):**
+- **Bluesky & Mastodon** — direct credential entry. You paste an app password or token. No external service involved.
+- **Facebook, LinkedIn, Threads & Tumblr** — one-click OAuth. The plugin automatically registers with the Greenberry OAuth service on activation. Click "Connect with Facebook", log in, authorise, done. The OAuth app credentials are managed by Greenberry — you never see them.
 
-1. Deploy the broker: `cd cloudflare-worker && npx wrangler deploy`
-2. Set secrets:
-   ```bash
-   npx wrangler secret put BROKER_SECRET
-   npx wrangler secret put FACEBOOK_APP_ID
-   npx wrangler secret put FACEBOOK_APP_SECRET
-   # ... etc for each platform
-   ```
-3. Add to `wp-config.php`:
-   ```php
-   define('GBSOCIAL_OAUTH_BROKER_URL', 'https://social-oauth.greenberry.ie');
-   define('GBSOCIAL_BROKER_SECRET', 'your-shared-secret');
-   ```
-4. Users get a one-click "Connect with Facebook" button.
-
-**Option B — Manual token entry:**
-Generate tokens via each platform's developer tools and paste them directly. No broker needed.
+Manual token entry is always available as a fallback for all providers.
 
 ## Features
 
@@ -61,11 +45,13 @@ Generate tokens via each platform's developer tools and paste them directly. No 
 
 ## Security Model
 
-**Layer 1 — Encrypted credentials:** All tokens encrypted with libsodium before storage. Key derived from `AUTH_KEY` via BLAKE2b.
+**Layer 1 — Encrypted credentials:** All tokens encrypted with libsodium before storage. Key derived from `AUTH_KEY` via BLAKE2b. A database dump alone cannot reveal tokens.
 
-**Layer 2 — HMAC-signed OAuth state:** WordPress↔Broker round-trip uses HMAC-SHA256. States expire after 10 minutes.
+**Layer 2 — Automatic site registration:** On activation, the plugin registers with the Greenberry OAuth broker and receives a unique per-site HMAC secret. This happens automatically — no admin action needed.
 
-**Layer 3 — Broker isolation:** OAuth app secrets live only in Cloudflare Workers Secrets. WordPress sites never see them.
+**Layer 3 — HMAC-signed OAuth state:** Every WordPress↔Broker round-trip uses HMAC-SHA256 signed with the per-site secret. States expire after 10 minutes. Prevents CSRF, state injection, and token tampering.
+
+**Layer 4 — Broker isolation:** Facebook/LinkedIn/Threads/Tumblr OAuth app secrets live only in Cloudflare Workers Secrets (encrypted at rest by Cloudflare, never logged, never in source code). WordPress sites never see the app secrets.
 
 ## REST API
 
@@ -77,10 +63,26 @@ Generate tokens via each platform's developer tools and paste them directly. No 
 | `/gbsocial/v1/share/{post_id}` | POST | Manually share a post |
 | `/gbsocial/v1/oauth/callback` | GET | OAuth callback handler |
 
+## Self-hosting the OAuth Broker (optional)
+
+If you want to run your own broker instead of using Greenberry's:
+
+```bash
+cd cloudflare-worker
+wrangler kv namespace create SITES       # create the KV store
+# update wrangler.toml with the KV namespace ID
+wrangler secret put FACEBOOK_APP_ID      # set your OAuth app credentials
+wrangler secret put FACEBOOK_APP_SECRET
+# ... repeat for LinkedIn, Threads, Tumblr
+wrangler deploy
+```
+
+Then change `GBSOCIAL_BROKER_URL` in `greenberry-social.php` to your Worker URL.
+
 ## Requirements
 
 - WordPress 6.0+
-- PHP 8.0+ with libsodium extension (included in PHP 7.2+)
+- PHP 8.0+ with libsodium (bundled with PHP 7.2+)
 
 ## License
 

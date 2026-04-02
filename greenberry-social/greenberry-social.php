@@ -20,6 +20,7 @@ define( 'GBSOCIAL_VERSION', '1.0.0' );
 define( 'GBSOCIAL_FILE', __FILE__ );
 define( 'GBSOCIAL_DIR', plugin_dir_path( __FILE__ ) );
 define( 'GBSOCIAL_URL', plugin_dir_url( __FILE__ ) );
+define( 'GBSOCIAL_BROKER_URL', 'https://social-oauth.greenberry.ie' );
 
 /**
  * PSR-4-style autoloader — no Composer needed.
@@ -58,10 +59,11 @@ add_action( 'plugins_loaded', function () {
 } );
 
 /**
- * Activation: flush rewrite rules for REST routes.
+ * Activation: register with the OAuth broker and flush rewrite rules.
  */
 register_activation_hook( __FILE__, function () {
 	flush_rewrite_rules();
+	\Greenberry\Social\Broker::register_site();
 } );
 
 /**

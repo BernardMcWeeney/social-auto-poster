@@ -14,6 +14,7 @@ final class Admin {
 
 		add_action( 'admin_menu', [ $this, 'add_menu' ] );
 		add_action( 'admin_init', [ $this, 'register_settings' ] );
+		add_action( 'admin_init', [ Broker::class, 'maybe_retry_registration' ] );
 		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_assets' ] );
 		add_action( 'admin_post_gbsocial_save_credentials', [ $this, 'handle_save_credentials' ] );
 		add_action( 'admin_post_gbsocial_disconnect', [ $this, 'handle_disconnect' ] );
@@ -81,7 +82,7 @@ final class Admin {
 	}
 
 	private function render_connections_tab(): void {
-		$broker_available = defined( 'GBSOCIAL_OAUTH_BROKER_URL' ) && ! empty( GBSOCIAL_OAUTH_BROKER_URL );
+		$broker_ready = Broker::is_registered();
 		?>
 		<div class="gbsocial-providers">
 			<?php foreach ( $this->providers->all() as $provider ) : ?>
@@ -113,13 +114,16 @@ final class Admin {
 							</form>
 						</div>
 					<?php else : ?>
-						<?php if ( $provider->needs_oauth() && $broker_available ) : ?>
-							<div class="gbsocial-oauth-section">
-								<a href="<?php echo esc_url( $this->get_oauth_url( $provider ) ); ?>" class="button button-primary">
-									<?php printf( esc_html__( 'Connect with %s', 'greenberry-social' ), esc_html( $provider->get_name() ) ); ?>
-								</a>
-								<p class="description"><?php esc_html_e( 'Or enter credentials manually below.', 'greenberry-social' ); ?></p>
-							</div>
+						<?php if ( $provider->needs_oauth() && $broker_ready ) : ?>
+							<?php $oauth_url = Broker::get_oauth_url( $provider->get_id() ); ?>
+							<?php if ( $oauth_url ) : ?>
+								<div class="gbsocial-oauth-section">
+									<a href="<?php echo esc_url( $oauth_url ); ?>" class="button button-primary">
+										<?php printf( esc_html__( 'Connect with %s', 'greenberry-social' ), esc_html( $provider->get_name() ) ); ?>
+									</a>
+									<p class="description"><?php esc_html_e( 'Or enter credentials manually below.', 'greenberry-social' ); ?></p>
+								</div>
+							<?php endif; ?>
 						<?php endif; ?>
 
 						<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="gbsocial-credentials-form">
@@ -144,7 +148,6 @@ final class Admin {
 													name="credentials[<?php echo esc_attr( $key ); ?>]"
 													id="gbsocial-<?php echo esc_attr( $provider->get_id() . '-' . $key ); ?>"
 													class="regular-text"
-													<?php echo ( $field['type'] !== 'password' && ! empty( $field['help'] ) && strpos( $field['help'], 'e.g.' ) !== false ) ? '' : ''; ?>
 												/>
 											<?php endif; ?>
 											<?php if ( ! empty( $field['help'] ) ) : ?>
@@ -320,26 +323,8 @@ final class Admin {
 		exit;
 	}
 
-	/* ── OAuth ────────────────────────────────────────────── */
+	/* ── OAuth callback ───────────────────────────────────── */
 
-	private function get_oauth_url( Provider $provider ): string {
-		$broker_url    = GBSOCIAL_OAUTH_BROKER_URL;
-		$broker_secret = defined( 'GBSOCIAL_BROKER_SECRET' ) ? GBSOCIAL_BROKER_SECRET : '';
-
-		$nonce = wp_create_nonce( 'gbsocial_oauth_' . $provider->get_id() );
-		$state_data = $provider->get_id() . '|' . $nonce . '|' . time();
-		$sig   = Crypto::hmac( $state_data, $broker_secret );
-		$state = base64_encode( $state_data . '|' . $sig );
-
-		return $broker_url . '/auth/' . $provider->get_id() . '?' . http_build_query( [
-			'state'        => $state,
-			'callback_url' => rest_url( 'gbsocial/v1/oauth/callback' ),
-		] );
-	}
-
-	/**
-	 * Register the OAuth callback REST endpoint.
-	 */
 	public function register_oauth_callback(): void {
 		register_rest_route( 'gbsocial/v1', '/oauth/callback', [
 			'methods'             => 'GET',
@@ -351,74 +336,47 @@ final class Admin {
 	}
 
 	public function handle_oauth_callback( \WP_REST_Request $request ): \WP_REST_Response|\WP_Error {
-		$broker_secret = defined( 'GBSOCIAL_BROKER_SECRET' ) ? GBSOCIAL_BROKER_SECRET : '';
-
-		$state_raw  = base64_decode( $request->get_param( 'state' ) ?? '' );
-		$signature  = $request->get_param( 'signature' ) ?? '';
+		$state      = $request->get_param( 'state' ) ?? '';
 		$token_data = $request->get_param( 'token_data' ) ?? '';
+		$signature  = $request->get_param( 'signature' ) ?? '';
 
-		// Validate state.
-		$parts = explode( '|', $state_raw );
-		if ( count( $parts ) < 4 ) {
-			return new \WP_Error( 'invalid_state', 'Invalid OAuth state.', [ 'status' => 400 ] );
+		// Verify everything via the Broker class.
+		$result = Broker::verify_callback( $state, $token_data, $signature );
+		if ( is_wp_error( $result ) ) {
+			return $result;
 		}
 
-		$provider_id = $parts[0];
-		$nonce       = $parts[1];
-		$timestamp   = (int) $parts[2];
-		$state_sig   = $parts[3];
-
-		// Check expiry (10 minutes).
-		if ( time() - $timestamp > 600 ) {
-			return new \WP_Error( 'expired_state', 'OAuth state expired.', [ 'status' => 400 ] );
-		}
-
-		// Verify state HMAC.
-		$expected_data = $provider_id . '|' . $nonce . '|' . $timestamp;
-		if ( ! Crypto::hmac_verify( $expected_data, $state_sig, $broker_secret ) ) {
-			return new \WP_Error( 'invalid_hmac', 'State signature mismatch.', [ 'status' => 400 ] );
-		}
-
-		// Verify callback signature.
-		if ( ! Crypto::hmac_verify( $token_data, $signature, $broker_secret ) ) {
-			return new \WP_Error( 'invalid_signature', 'Callback signature mismatch.', [ 'status' => 400 ] );
-		}
-
-		// Verify nonce.
-		if ( ! wp_verify_nonce( $nonce, 'gbsocial_oauth_' . $provider_id ) ) {
-			return new \WP_Error( 'invalid_nonce', 'Nonce verification failed.', [ 'status' => 400 ] );
-		}
-
-		// Decode and save credentials.
-		$credentials = json_decode( base64_decode( $token_data ), true );
-		if ( ! $credentials ) {
-			return new \WP_Error( 'invalid_token', 'Could not decode token data.', [ 'status' => 400 ] );
-		}
-
-		$provider = $this->providers->get( $provider_id );
+		$provider = $this->providers->get( $result['provider'] );
 		if ( ! $provider ) {
 			return new \WP_Error( 'unknown_provider', 'Unknown provider.', [ 'status' => 400 ] );
 		}
 
-		$provider->save_credentials( $credentials );
+		$provider->save_credentials( $result['credentials'] );
 
-		// Redirect back to settings.
-		wp_safe_redirect( admin_url( 'options-general.php?page=greenberry-social&tab=connections&oauth=success' ) );
+		set_transient( 'gbsocial_notice', [
+			'type'    => 'success',
+			'message' => sprintf( __( '%s connected successfully!', 'greenberry-social' ), $provider->get_name() ),
+		], 30 );
+
+		wp_safe_redirect( admin_url( 'options-general.php?page=greenberry-social&tab=connections' ) );
 		exit;
 	}
 
 	/* ── Notices ──────────────────────────────────────────── */
 
 	private function render_notices(): void {
+		// Broker registration failure.
+		if ( ! Broker::is_registered() ) {
+			echo '<div class="notice notice-warning"><p>';
+			esc_html_e( 'Greenberry Social could not connect to the OAuth service. One-click connections for Facebook, LinkedIn, Threads, and Tumblr are unavailable. You can still connect by entering credentials manually.', 'greenberry-social' );
+			echo '</p></div>';
+		}
+
 		$notice = get_transient( 'gbsocial_notice' );
 		if ( $notice ) {
 			delete_transient( 'gbsocial_notice' );
 			$type = $notice['type'] === 'success' ? 'updated' : 'error';
 			printf( '<div class="notice %s is-dismissible"><p>%s</p></div>', esc_attr( $type ), esc_html( $notice['message'] ) );
-		}
-
-		if ( isset( $_GET['oauth'] ) && $_GET['oauth'] === 'success' ) {
-			echo '<div class="notice updated is-dismissible"><p>' . esc_html__( 'Account connected via OAuth!', 'greenberry-social' ) . '</p></div>';
 		}
 	}
 }

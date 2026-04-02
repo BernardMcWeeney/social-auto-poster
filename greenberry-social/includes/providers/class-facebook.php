@@ -96,33 +96,4 @@ class Facebook extends Provider {
 		return true;
 	}
 
-	/* ── OAuth helpers ────────────────────────────────────── */
-
-	/**
-	 * Get the OAuth authorize URL (via broker).
-	 */
-	public static function get_oauth_url(): ?string {
-		$broker_url = defined( 'GBSOCIAL_OAUTH_BROKER_URL' ) ? GBSOCIAL_OAUTH_BROKER_URL : '';
-		if ( empty( $broker_url ) ) {
-			return null;
-		}
-
-		$state = self::generate_state( 'facebook' );
-
-		return $broker_url . '/auth/facebook?' . http_build_query( [
-			'state'        => $state,
-			'callback_url' => rest_url( 'gbsocial/v1/oauth/callback' ),
-		] );
-	}
-
-	/**
-	 * Generate a signed OAuth state parameter.
-	 */
-	private static function generate_state( string $provider ): string {
-		$broker_secret = defined( 'GBSOCIAL_BROKER_SECRET' ) ? GBSOCIAL_BROKER_SECRET : '';
-		$nonce         = wp_create_nonce( 'gbsocial_oauth_' . $provider );
-		$data          = $provider . '|' . $nonce . '|' . time();
-		$sig           = \Greenberry\Social\Crypto::hmac( $data, $broker_secret );
-		return base64_encode( $data . '|' . $sig );
-	}
 }

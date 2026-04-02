@@ -5,13 +5,22 @@ compatibility_date = "2024-01-01"
 # Deploy to: social-oauth.greenberry.ie
 # routes = [{ pattern = "social-oauth.greenberry.ie/*", zone_name = "greenberry.ie" }]
 
+# KV namespace for site registrations.
+# Create with: wrangler kv namespace create SITES
+# Then paste the ID below.
+[[kv_namespaces]]
+binding = "SITES"
+id = "YOUR_KV_NAMESPACE_ID"
+
 # Secrets (set via `wrangler secret put`):
-# BROKER_SECRET           — shared with WordPress sites for HMAC signing
-# FACEBOOK_APP_ID         — Facebook OAuth app ID
-# FACEBOOK_APP_SECRET     — Facebook OAuth app secret
-# LINKEDIN_CLIENT_ID      — LinkedIn OAuth client ID
-# LINKEDIN_CLIENT_SECRET  — LinkedIn OAuth client secret
-# THREADS_APP_ID          — Threads/Meta OAuth app ID
-# THREADS_APP_SECRET      — Threads/Meta OAuth app secret
-# TUMBLR_CONSUMER_KEY     — Tumblr OAuth consumer key
-# TUMBLR_CONSUMER_SECRET  — Tumblr OAuth consumer secret
+# FACEBOOK_APP_ID
+# FACEBOOK_APP_SECRET
+# LINKEDIN_CLIENT_ID
+# LINKEDIN_CLIENT_SECRET
+# THREADS_APP_ID
+# THREADS_APP_SECRET
+# TUMBLR_CONSUMER_KEY
+# TUMBLR_CONSUMER_SECRET
+#
+# Note: BROKER_SECRET is no longer needed — each site gets its own
+# auto-generated secret via the /register endpoint.
