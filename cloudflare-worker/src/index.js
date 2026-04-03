@@ -26,6 +26,7 @@ const PROVIDERS = {
 		tokenUrl: 'https://graph.facebook.com/v21.0/oauth/access_token',
 		scopes: 'pages_show_list,pages_manage_posts,pages_read_engagement',
 		getCredentials: async (tokenData, env) => {
+			// Exchange for long-lived user token.
 			const longLivedRes = await fetch(
 				`https://graph.facebook.com/v21.0/oauth/access_token?` +
 				`grant_type=fb_exchange_token&client_id=${env.FACEBOOK_APP_ID}` +
@@ -35,15 +36,33 @@ const PROVIDERS = {
 			const longLived = await longLivedRes.json();
 			if (longLived.error) throw new Error(longLived.error.message);
 
+			// Fetch ALL pages.
 			const pagesRes = await fetch(
-				`https://graph.facebook.com/v21.0/me/accounts?access_token=${longLived.access_token}`
+				`https://graph.facebook.com/v21.0/me/accounts?limit=100&access_token=${longLived.access_token}`
 			);
 			const pages = await pagesRes.json();
 			if (!pages.data || pages.data.length === 0) {
 				throw new Error('No Facebook Pages found. Make sure your account manages at least one Page.');
 			}
 
-			const page = pages.data[0];
+			// Store EVERY page token centrally in KV so all sites sharing
+			// the same Facebook account get the latest tokens.
+			for (const page of pages.data) {
+				await env.SITES.put(`fb_page:${page.id}`, JSON.stringify({
+					page_id: page.id,
+					page_name: page.name,
+					access_token: page.access_token,
+					updated_at: new Date().toISOString(),
+				}));
+			}
+
+			// Return the page requested by this site (first page by default).
+			// The site_id is passed via _meta so the broker knows which site.
+			const requestedPageId = tokenData._requested_page_id;
+			const page = requestedPageId
+				? pages.data.find(p => p.id === requestedPageId) || pages.data[0]
+				: pages.data[0];
+
 			return {
 				page_id: page.id,
 				access_token: page.access_token,
@@ -201,6 +220,12 @@ export default {
 		const authMatch = path.match(/^\/auth\/([a-z]+)$/);
 		if (authMatch && request.method === 'GET') {
 			return handleAuth(authMatch[1], url, env);
+		}
+
+		// GET /token/facebook/{page_id} — get latest token for a Facebook page.
+		const tokenMatch = path.match(/^\/token\/facebook\/(\d+)$/);
+		if (tokenMatch && request.method === 'GET') {
+			return handleTokenRefresh(tokenMatch[1], url, env);
 		}
 
 		// GET /callback/{provider} — handle OAuth callback from platform.
@@ -466,6 +491,54 @@ async function handleCallback(providerName, url, env) {
 	callbackUrl.searchParams.set('signature', signature);
 
 	return Response.redirect(callbackUrl.toString(), 302);
+}
+
+/* ── Token Refresh: return latest token for a Facebook page ── */
+
+async function handleTokenRefresh(pageId, url, env) {
+	const siteId = url.searchParams.get('site_id');
+	const timestamp = url.searchParams.get('ts');
+	const signature = url.searchParams.get('sig');
+
+	if (!siteId || !timestamp || !signature) {
+		return jsonResponse({ error: 'Missing site_id, ts, or sig.' }, 400);
+	}
+
+	// Look up site to verify the request.
+	const siteDataJson = await env.SITES.get(`site:${siteId}`);
+	if (!siteDataJson) {
+		return jsonResponse({ error: 'Site not registered.' }, 403);
+	}
+	const siteData = JSON.parse(siteDataJson);
+
+	// Check expiry (10 minutes).
+	if (Math.abs(Date.now() / 1000 - parseInt(timestamp, 10)) > 600) {
+		return jsonResponse({ error: 'Request expired.' }, 400);
+	}
+
+	// Verify HMAC signature.
+	const payload = `token:${pageId}:${timestamp}`;
+	const valid = await hmacVerify(payload, signature, siteData.site_secret);
+	if (!valid) {
+		return jsonResponse({ error: 'Invalid signature.' }, 403);
+	}
+
+	// Look up the latest token from KV.
+	const tokenJson = await env.SITES.get(`fb_page:${pageId}`);
+	if (!tokenJson) {
+		return jsonResponse({ error: 'No token found for this page.' }, 404);
+	}
+
+	const tokenData = JSON.parse(tokenJson);
+
+	// Sign the response so the plugin can verify it.
+	const responsePayload = JSON.stringify(tokenData);
+	const responseSig = await hmacSign(responsePayload, siteData.site_secret);
+
+	return jsonResponse({
+		token: tokenData,
+		signature: responseSig,
+	});
 }
 
 /* ── Helpers ────────────────────────────────────────────── */
