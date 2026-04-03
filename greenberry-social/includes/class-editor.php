@@ -83,6 +83,13 @@ final class Editor {
 	/* ── Classic Editor Meta Box ──────────────────────────── */
 
 	public function add_meta_box(): void {
+		// Don't add the classic meta box when the block editor is active —
+		// the Gutenberg sidebar panel handles everything.
+		$screen = get_current_screen();
+		if ( $screen && method_exists( $screen, 'is_block_editor' ) && $screen->is_block_editor() ) {
+			return;
+		}
+
 		$post_types = (array) get_option( 'gbsocial_post_types', [ 'post' ] );
 		foreach ( $post_types as $pt ) {
 			add_meta_box(
