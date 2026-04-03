@@ -456,9 +456,11 @@ final class Admin {
 		register_rest_route( 'gbsocial/v1', '/oauth/callback', [
 			'methods'             => 'GET',
 			'callback'            => [ $this, 'handle_oauth_callback' ],
-			'permission_callback' => function () {
-				return current_user_can( 'manage_options' );
-			},
+			// Public endpoint — security is handled by HMAC signature verification
+			// and the WordPress nonce embedded in the OAuth state parameter.
+			// We can't require manage_options here because this is an external
+			// redirect from Facebook/LinkedIn/etc — no WP session cookie is sent.
+			'permission_callback' => '__return_true',
 		] );
 	}
 
@@ -467,6 +469,12 @@ final class Admin {
 		$token_data = $request->get_param( 'token_data' ) ?? '';
 		$signature  = $request->get_param( 'signature' ) ?? '';
 
+		if ( empty( $state ) || empty( $token_data ) || empty( $signature ) ) {
+			return new \WP_Error( 'missing_params', 'Missing required OAuth callback parameters.', [ 'status' => 400 ] );
+		}
+
+		// Broker::verify_callback checks: HMAC signature, state HMAC, expiry, and WP nonce.
+		// The nonce verification confirms the user who initiated the flow was a logged-in admin.
 		$result = Broker::verify_callback( $state, $token_data, $signature );
 		if ( is_wp_error( $result ) ) {
 			return $result;
