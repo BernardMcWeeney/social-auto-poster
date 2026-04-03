@@ -147,39 +147,6 @@ final class Admin {
 
 					<div class="gbsocial-provider-body">
 						<?php if ( $connected ) : ?>
-							<?php
-							// Facebook page selector — if multiple pages are available.
-							if ( $id === 'facebook' ) :
-								$fb_creds = $provider->get_credentials();
-								$pages = $fb_creds['pages'] ?? [];
-								if ( count( $pages ) > 1 ) :
-							?>
-								<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin-bottom:12px;">
-									<?php wp_nonce_field( 'gbsocial_save_' . $id ); ?>
-									<input type="hidden" name="action" value="gbsocial_save_credentials" />
-									<input type="hidden" name="provider" value="facebook" />
-									<input type="hidden" name="credentials[pages]" value="<?php echo esc_attr( wp_json_encode( $pages ) ); ?>" />
-									<label>
-										<strong><?php esc_html_e( 'Active Page:', 'greenberry-social' ); ?></strong>
-										<select name="credentials[page_id]" onchange="this.form.querySelector('.gbsocial-fb-token').value=this.options[this.selectedIndex].dataset.token; this.form.querySelector('.gbsocial-fb-name').value=this.options[this.selectedIndex].dataset.name;">
-											<?php foreach ( $pages as $page ) : ?>
-												<option value="<?php echo esc_attr( $page['id'] ); ?>"
-													data-token="<?php echo esc_attr( $page['access_token'] ); ?>"
-													data-name="<?php echo esc_attr( $page['name'] ); ?>"
-													<?php selected( $fb_creds['page_id'], $page['id'] ); ?>>
-													<?php echo esc_html( $page['name'] ); ?> (<?php echo esc_html( $page['id'] ); ?>)
-												</option>
-											<?php endforeach; ?>
-										</select>
-									</label>
-									<input type="hidden" class="gbsocial-fb-token" name="credentials[access_token]" value="<?php echo esc_attr( $fb_creds['access_token'] ); ?>" />
-									<input type="hidden" class="gbsocial-fb-name" name="credentials[page_name]" value="<?php echo esc_attr( $fb_creds['page_name'] ?? '' ); ?>" />
-									<button type="submit" class="button" style="margin-left:8px;"><?php esc_html_e( 'Switch Page', 'greenberry-social' ); ?></button>
-								</form>
-							<?php
-								endif;
-							endif;
-							?>
 							<div class="gbsocial-provider-actions">
 								<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline;">
 									<?php wp_nonce_field( 'gbsocial_test_' . $id ); ?>
@@ -404,16 +371,7 @@ final class Admin {
 			wp_die( 'Unknown provider.' );
 		}
 
-		$raw_credentials = (array) ( $_POST['credentials'] ?? [] );
-		$credentials = [];
-		foreach ( $raw_credentials as $key => $value ) {
-			if ( $key === 'pages' && is_string( $value ) ) {
-				// Preserve the pages JSON array from Facebook OAuth.
-				$credentials['pages'] = json_decode( wp_unslash( $value ), true ) ?: [];
-			} else {
-				$credentials[ sanitize_text_field( $key ) ] = sanitize_text_field( $value );
-			}
-		}
+		$credentials = array_map( 'sanitize_text_field', (array) ( $_POST['credentials'] ?? [] ) );
 
 		$test = $provider->test_connection( $credentials );
 		if ( is_wp_error( $test ) ) {

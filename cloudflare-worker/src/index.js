@@ -35,33 +35,19 @@ const PROVIDERS = {
 			const longLived = await longLivedRes.json();
 			if (longLived.error) throw new Error(longLived.error.message);
 
-			// Fetch ALL pages (paginated).
-			let allPages = [];
-			let nextUrl = `https://graph.facebook.com/v21.0/me/accounts?limit=100&access_token=${longLived.access_token}`;
-			while (nextUrl) {
-				const pagesRes = await fetch(nextUrl);
-				const pagesData = await pagesRes.json();
-				if (pagesData.data) {
-					allPages = allPages.concat(pagesData.data);
-				}
-				nextUrl = pagesData.paging?.next || null;
-			}
-
-			if (allPages.length === 0) {
+			const pagesRes = await fetch(
+				`https://graph.facebook.com/v21.0/me/accounts?access_token=${longLived.access_token}`
+			);
+			const pages = await pagesRes.json();
+			if (!pages.data || pages.data.length === 0) {
 				throw new Error('No Facebook Pages found. Make sure your account manages at least one Page.');
 			}
 
-			// Return ALL pages so the user can choose in the plugin settings.
+			const page = pages.data[0];
 			return {
-				pages: allPages.map(p => ({
-					id: p.id,
-					name: p.name,
-					access_token: p.access_token,
-				})),
-				// Default to first page (plugin settings will let user switch).
-				page_id: allPages[0].id,
-				access_token: allPages[0].access_token,
-				page_name: allPages[0].name,
+				page_id: page.id,
+				access_token: page.access_token,
+				page_name: page.name,
 			};
 		},
 	},
