@@ -35,19 +35,33 @@ const PROVIDERS = {
 			const longLived = await longLivedRes.json();
 			if (longLived.error) throw new Error(longLived.error.message);
 
-			const pagesRes = await fetch(
-				`https://graph.facebook.com/v21.0/me/accounts?access_token=${longLived.access_token}`
-			);
-			const pages = await pagesRes.json();
-			if (!pages.data || pages.data.length === 0) {
+			// Fetch ALL pages (paginated).
+			let allPages = [];
+			let nextUrl = `https://graph.facebook.com/v21.0/me/accounts?limit=100&access_token=${longLived.access_token}`;
+			while (nextUrl) {
+				const pagesRes = await fetch(nextUrl);
+				const pagesData = await pagesRes.json();
+				if (pagesData.data) {
+					allPages = allPages.concat(pagesData.data);
+				}
+				nextUrl = pagesData.paging?.next || null;
+			}
+
+			if (allPages.length === 0) {
 				throw new Error('No Facebook Pages found. Make sure your account manages at least one Page.');
 			}
 
-			const page = pages.data[0];
+			// Return ALL pages so the user can choose in the plugin settings.
 			return {
-				page_id: page.id,
-				access_token: page.access_token,
-				page_name: page.name,
+				pages: allPages.map(p => ({
+					id: p.id,
+					name: p.name,
+					access_token: p.access_token,
+				})),
+				// Default to first page (plugin settings will let user switch).
+				page_id: allPages[0].id,
+				access_token: allPages[0].access_token,
+				page_name: allPages[0].name,
 			};
 		},
 	},
@@ -72,6 +86,10 @@ const PROVIDERS = {
 		authorizeUrl: 'https://threads.net/oauth/authorize',
 		tokenUrl: 'https://graph.threads.net/oauth/access_token',
 		scopes: 'threads_basic,threads_content_publish',
+		// Threads uses 'app_id' instead of 'client_id' in the authorize URL.
+		authParamOverrides: { client_id: 'app_id' },
+		// Threads token exchange also uses 'app_id' and 'app_secret'.
+		tokenParamOverrides: { client_id: 'app_id', client_secret: 'app_secret' },
 		getCredentials: async (tokenData) => {
 			const longLivedRes = await fetch(
 				`https://graph.threads.net/access_token?` +
@@ -86,6 +104,7 @@ const PROVIDERS = {
 			const me = await meRes.json();
 			return {
 				user_id: me.id,
+				username: me.username || '',
 				access_token: longLived.access_token,
 			};
 		},
@@ -331,7 +350,9 @@ async function handleAuth(providerName, url, env) {
 	const brokerCallbackUrl = `${url.origin}/callback/${providerName}`;
 
 	const authUrl = new URL(provider.authorizeUrl);
-	authUrl.searchParams.set('client_id', clientId);
+	// Some providers use different param names (e.g. Threads uses 'app_id' instead of 'client_id').
+	const clientIdParam = provider.authParamOverrides?.client_id || 'client_id';
+	authUrl.searchParams.set(clientIdParam, clientId);
 	authUrl.searchParams.set('redirect_uri', brokerCallbackUrl);
 	authUrl.searchParams.set('response_type', 'code');
 	authUrl.searchParams.set('scope', provider.scopes);
@@ -410,13 +431,16 @@ async function handleCallback(providerName, url, env) {
 	const clientSecret = getClientSecret(providerName, env);
 	const brokerCallbackUrl = `${url.origin}/callback/${providerName}`;
 
-	const tokenBody = new URLSearchParams({
-		client_id: clientId,
-		client_secret: clientSecret,
-		code: code,
-		redirect_uri: brokerCallbackUrl,
-		grant_type: 'authorization_code',
-	});
+	// Some providers use different param names (e.g. Threads: app_id, app_secret).
+	const tokenIdParam = provider.tokenParamOverrides?.client_id || 'client_id';
+	const tokenSecretParam = provider.tokenParamOverrides?.client_secret || 'client_secret';
+
+	const tokenBody = new URLSearchParams();
+	tokenBody.set(tokenIdParam, clientId);
+	tokenBody.set(tokenSecretParam, clientSecret);
+	tokenBody.set('code', code);
+	tokenBody.set('redirect_uri', brokerCallbackUrl);
+	tokenBody.set('grant_type', 'authorization_code');
 
 	const tokenRes = await fetch(provider.tokenUrl, {
 		method: 'POST',

@@ -68,17 +68,13 @@ final class Editor {
 				'auth_callback' => function () { return current_user_can( 'edit_posts' ); },
 			] );
 
+			// Per-platform messages stored as JSON string to avoid REST schema issues
+			// with 'object' type that can crash the block editor.
 			register_post_meta( $pt, '_gbsocial_messages', [
-				'show_in_rest'  => [
-					'schema' => [
-						'type'       => 'object',
-						'properties' => new \stdClass(), // allow any keys
-						'additionalProperties' => [ 'type' => 'string' ],
-					],
-				],
+				'show_in_rest'  => true,
 				'single'        => true,
-				'type'          => 'object',
-				'default'       => new \stdClass(),
+				'type'          => 'string',
+				'default'       => '',
 				'auth_callback' => function () { return current_user_can( 'edit_posts' ); },
 			] );
 		}
@@ -106,7 +102,8 @@ final class Editor {
 		$disabled      = (bool) get_post_meta( $post->ID, '_gbsocial_disable', true );
 		$selected      = get_post_meta( $post->ID, '_gbsocial_providers', true ) ?: [];
 		$message       = get_post_meta( $post->ID, '_gbsocial_message', true ) ?: '';
-		$messages      = get_post_meta( $post->ID, '_gbsocial_messages', true ) ?: [];
+		$messages_raw  = get_post_meta( $post->ID, '_gbsocial_messages', true ) ?: '';
+		$messages      = is_string( $messages_raw ) ? ( json_decode( $messages_raw, true ) ?: [] ) : ( is_array( $messages_raw ) ? $messages_raw : [] );
 		$social_image  = (int) get_post_meta( $post->ID, '_gbsocial_social_image', true );
 		$schedule      = get_post_meta( $post->ID, '_gbsocial_schedule', true ) ?: '';
 		$shared        = (bool) get_post_meta( $post->ID, '_gbsocial_shared', true );
@@ -441,7 +438,7 @@ final class Editor {
 			}
 		}
 		if ( ! empty( $messages ) ) {
-			update_post_meta( $post_id, '_gbsocial_messages', $messages );
+			update_post_meta( $post_id, '_gbsocial_messages', wp_json_encode( $messages ) );
 		} else {
 			delete_post_meta( $post_id, '_gbsocial_messages' );
 		}

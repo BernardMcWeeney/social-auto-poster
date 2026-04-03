@@ -111,6 +111,9 @@ final class Share_Handler {
 	private function build_message( \WP_Post $post, string $provider_id ): string {
 		// 1. Per-platform custom message (set in editor).
 		$per_platform = get_post_meta( $post->ID, '_gbsocial_messages', true );
+		if ( is_string( $per_platform ) ) {
+			$per_platform = json_decode( $per_platform, true );
+		}
 		if ( is_array( $per_platform ) && ! empty( $per_platform[ $provider_id ] ) ) {
 			$template = $per_platform[ $provider_id ];
 			return $this->replace_placeholders( $template, $post, $provider_id );

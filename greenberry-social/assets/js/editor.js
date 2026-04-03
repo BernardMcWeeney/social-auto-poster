@@ -73,7 +73,13 @@
 		var disabled = meta._gbsocial_disable || false;
 		var selectedProviders = meta._gbsocial_providers || [];
 		var globalMessage = meta._gbsocial_message || '';
-		var perPlatformMessages = meta._gbsocial_messages || {};
+		var rawMessages = meta._gbsocial_messages || '';
+		var perPlatformMessages = {};
+		if (rawMessages && typeof rawMessages === 'string') {
+			try { perPlatformMessages = JSON.parse(rawMessages); } catch (e) {}
+		} else if (rawMessages && typeof rawMessages === 'object') {
+			perPlatformMessages = rawMessages;
+		}
 		var schedule = meta._gbsocial_schedule || '';
 
 		var _reshareState = useState(null);
@@ -101,7 +107,7 @@
 			} else {
 				delete updated[providerId];
 			}
-			updateMeta('_gbsocial_messages', updated);
+			updateMeta('_gbsocial_messages', JSON.stringify(updated));
 		}
 
 		function handleReshare() {
