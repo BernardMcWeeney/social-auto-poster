@@ -20,7 +20,11 @@ define( 'GBSOCIAL_VERSION', '1.0.0' );
 define( 'GBSOCIAL_FILE', __FILE__ );
 define( 'GBSOCIAL_DIR', plugin_dir_path( __FILE__ ) );
 define( 'GBSOCIAL_URL', plugin_dir_url( __FILE__ ) );
-define( 'GBSOCIAL_BROKER_URL', 'https://social-oauth-broker.greenberry.workers.dev' );
+// Broker URL: can be overridden in wp-config.php or from the settings page.
+if ( ! defined( 'GBSOCIAL_BROKER_URL' ) ) {
+	$_gbsocial_broker = get_option( 'gbsocial_broker_url', 'https://social-oauth.greenberry.ie' );
+	define( 'GBSOCIAL_BROKER_URL', rtrim( $_gbsocial_broker, '/' ) );
+}
 
 /**
  * PSR-4-style autoloader — no Composer needed.

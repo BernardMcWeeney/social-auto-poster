@@ -70,6 +70,18 @@ final class Admin {
 	public function register_settings(): void {
 		register_setting( 'gbsocial_options', 'gbsocial_post_types' );
 		register_setting( 'gbsocial_options', 'gbsocial_template' );
+		register_setting( 'gbsocial_options', 'gbsocial_broker_url', [
+			'sanitize_callback' => function ( $val ) {
+				// Clear registration when broker URL changes.
+				$old = get_option( 'gbsocial_broker_url', '' );
+				if ( $val !== $old ) {
+					delete_option( 'gbsocial_site_secret' );
+					delete_option( 'gbsocial_site_id' );
+					delete_option( 'gbsocial_registration_error' );
+				}
+				return esc_url_raw( rtrim( $val, '/' ) );
+			},
+		] );
 
 		foreach ( $this->providers->all() as $provider ) {
 			register_setting( 'gbsocial_options', 'gbsocial_template_' . $provider->get_id() );
@@ -230,6 +242,19 @@ final class Admin {
 			<div class="gbsocial-settings-section">
 				<h2><?php esc_html_e( 'General', 'greenberry-social' ); ?></h2>
 				<table class="form-table">
+					<tr>
+						<th><label for="gbsocial-broker-url"><?php esc_html_e( 'OAuth Broker URL', 'greenberry-social' ); ?></label></th>
+						<td>
+							<input type="url" name="gbsocial_broker_url" id="gbsocial-broker-url" class="regular-text"
+								value="<?php echo esc_attr( get_option( 'gbsocial_broker_url', 'https://social-oauth.greenberry.ie' ) ); ?>" />
+							<p class="description">
+								<?php esc_html_e( 'The Cloudflare Worker URL for OAuth connections.', 'greenberry-social' ); ?>
+								<?php if ( Broker::is_registered() ) : ?>
+									<span style="color:#00a32a;font-weight:500;">&#10003; <?php esc_html_e( 'Connected', 'greenberry-social' ); ?></span>
+								<?php endif; ?>
+							</p>
+						</td>
+					</tr>
 					<tr>
 						<th><?php esc_html_e( 'Post Types', 'greenberry-social' ); ?></th>
 						<td>
