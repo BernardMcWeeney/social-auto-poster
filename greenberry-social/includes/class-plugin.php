@@ -31,6 +31,9 @@ final class Plugin {
 		$this->editor        = new Editor( $this->providers );
 		$this->rest          = new Rest_Controller( $this->providers );
 
+		// Browser-based broker registration (bypasses Bot Fight Mode).
+		Broker::register_ajax_handlers();
+
 		$this->register_default_providers();
 
 		/**

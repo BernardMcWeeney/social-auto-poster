@@ -500,9 +500,93 @@ final class Admin {
 
 	private function render_notices(): void {
 		if ( ! Broker::is_registered() ) {
-			echo '<div class="notice notice-warning"><p>';
-			esc_html_e( 'Greenberry Social could not connect to the OAuth service. One-click connections for Facebook, LinkedIn, Threads, and Tumblr are unavailable. You can still connect by entering credentials manually.', 'greenberry-social' );
-			echo '</p></div>';
+			$error = Broker::get_registration_error();
+			?>
+			<div class="notice notice-warning" id="gbsocial-registration-notice">
+				<p>
+					<strong><?php esc_html_e( 'Greenberry Social is not connected to the OAuth service.', 'greenberry-social' ); ?></strong>
+					<?php esc_html_e( 'One-click connections for Facebook, LinkedIn, Threads, and Tumblr are unavailable.', 'greenberry-social' ); ?>
+				</p>
+				<?php if ( $error ) : ?>
+					<p style="color:#646970;font-size:12px;"><?php echo esc_html( 'Error: ' . $error ); ?></p>
+				<?php endif; ?>
+				<p>
+					<button type="button" class="button button-primary" id="gbsocial-register-btn">
+						<?php esc_html_e( 'Connect to OAuth Service', 'greenberry-social' ); ?>
+					</button>
+					<span id="gbsocial-register-status" style="margin-left:8px;"></span>
+				</p>
+			</div>
+			<script>
+			(function(){
+				var btn = document.getElementById('gbsocial-register-btn');
+				var status = document.getElementById('gbsocial-register-status');
+				if (!btn) return;
+
+				btn.addEventListener('click', function() {
+					btn.disabled = true;
+					status.textContent = 'Connecting...';
+					status.style.color = '#646970';
+
+					// Step 1: Get registration data from WordPress.
+					fetch(ajaxurl + '?action=gbsocial_register_status&_wpnonce=<?php echo wp_create_nonce( 'gbsocial_broker' ); ?>')
+						.then(function(r) { return r.json(); })
+						.then(function(result) {
+							if (!result.success) throw new Error(result.data || 'Failed to get registration data.');
+							var d = result.data;
+
+							if (d.registered) {
+								status.textContent = 'Already registered!';
+								status.style.color = '#00a32a';
+								setTimeout(function() { location.reload(); }, 1000);
+								return;
+							}
+
+							// Step 2: POST to broker FROM THE BROWSER (bypasses Bot Fight Mode).
+							return fetch(d.broker_url + '/register', {
+								method: 'POST',
+								headers: { 'Content-Type': 'application/json' },
+								body: JSON.stringify({
+									site_url: d.site_url,
+									site_key: d.site_key,
+									callback: d.callback
+								})
+							})
+							.then(function(r) { return r.json(); })
+							.then(function(brokerResult) {
+								if (!brokerResult.site_id || !brokerResult.site_secret) {
+									throw new Error(brokerResult.error || 'Broker returned invalid response.');
+								}
+
+								// Step 3: Save the secret back to WordPress.
+								var formData = new FormData();
+								formData.append('action', 'gbsocial_register_broker');
+								formData.append('_wpnonce', '<?php echo wp_create_nonce( 'gbsocial_broker' ); ?>');
+								formData.append('site_id', brokerResult.site_id);
+								formData.append('site_secret', brokerResult.site_secret);
+
+								return fetch(ajaxurl, { method: 'POST', body: formData });
+							})
+							.then(function(r) { return r.json(); })
+							.then(function(saveResult) {
+								if (saveResult.success) {
+									status.textContent = 'Connected! Reloading...';
+									status.style.color = '#00a32a';
+									setTimeout(function() { location.reload(); }, 1000);
+								} else {
+									throw new Error(saveResult.data || 'Failed to save registration.');
+								}
+							});
+						})
+						.catch(function(err) {
+							btn.disabled = false;
+							status.textContent = 'Error: ' + err.message;
+							status.style.color = '#d63638';
+						});
+				});
+			})();
+			</script>
+			<?php
 		}
 
 		$notice = get_transient( 'gbsocial_notice' );
