@@ -26,7 +26,7 @@ const PROVIDERS = {
 		tokenUrl: 'https://graph.facebook.com/v21.0/oauth/access_token',
 		scopes: 'pages_show_list,pages_manage_posts,pages_read_engagement',
 		getCredentials: async (tokenData, env) => {
-			// Exchange for long-lived user token.
+			// Step 1: Exchange short-lived user token for long-lived user token.
 			const longLivedRes = await fetch(
 				`https://graph.facebook.com/v21.0/oauth/access_token?` +
 				`grant_type=fb_exchange_token&client_id=${env.FACEBOOK_APP_ID}` +
@@ -36,7 +36,7 @@ const PROVIDERS = {
 			const longLived = await longLivedRes.json();
 			if (longLived.error) throw new Error(longLived.error.message);
 
-			// Fetch ALL pages.
+			// Step 2: Get all pages the user manages.
 			const pagesRes = await fetch(
 				`https://graph.facebook.com/v21.0/me/accounts?limit=100&access_token=${longLived.access_token}`
 			);
@@ -45,28 +45,50 @@ const PROVIDERS = {
 				throw new Error('No Facebook Pages found. Make sure your account manages at least one Page.');
 			}
 
-			// Store EVERY page token centrally in KV so all sites sharing
-			// the same Facebook account get the latest tokens.
+			// Step 3: For EACH page, get a permanent never-expiring page token.
+			// When you request a page token using a long-lived user token AND
+			// explicitly call /{page-id}?fields=access_token, Facebook returns
+			// a permanent page token that survives user token changes.
+			const permanentPages = [];
 			for (const page of pages.data) {
-				await env.SITES.put(`fb_page:${page.id}`, JSON.stringify({
-					page_id: page.id,
-					page_name: page.name,
+				const pageTokenRes = await fetch(
+					`https://graph.facebook.com/v21.0/${page.id}?fields=id,name,access_token&access_token=${longLived.access_token}`
+				);
+				const pageData = await pageTokenRes.json();
+				if (pageData.access_token) {
+					permanentPages.push({
+						page_id: pageData.id,
+						page_name: pageData.name,
+						access_token: pageData.access_token,
+					});
+				}
+			}
+
+			if (permanentPages.length === 0) {
+				throw new Error('Could not get permanent page tokens. Check app permissions.');
+			}
+
+			// Step 4: Store every permanent page token in KV.
+			// These tokens survive re-authorization from other sites.
+			for (const page of permanentPages) {
+				await env.SITES.put(`fb_page:${page.page_id}`, JSON.stringify({
+					page_id: page.page_id,
+					page_name: page.page_name,
 					access_token: page.access_token,
 					updated_at: new Date().toISOString(),
 				}));
 			}
 
-			// Return the page requested by this site (first page by default).
-			// The site_id is passed via _meta so the broker knows which site.
+			// Return the first page (or requested page) for this site.
 			const requestedPageId = tokenData._requested_page_id;
-			const page = requestedPageId
-				? pages.data.find(p => p.id === requestedPageId) || pages.data[0]
-				: pages.data[0];
+			const selected = requestedPageId
+				? permanentPages.find(p => p.page_id === requestedPageId) || permanentPages[0]
+				: permanentPages[0];
 
 			return {
-				page_id: page.id,
-				access_token: page.access_token,
-				page_name: page.name,
+				page_id: selected.page_id,
+				access_token: selected.access_token,
+				page_name: selected.page_name,
 			};
 		},
 	},
