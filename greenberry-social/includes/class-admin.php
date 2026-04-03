@@ -164,6 +164,52 @@ final class Admin {
 
 					<div class="gbsocial-provider-body">
 						<?php if ( $connected ) : ?>
+							<?php if ( 'facebook' === $id ) : ?>
+								<?php
+								$fb_pages = [];
+								if ( $provider instanceof Providers\Facebook ) {
+									$fb_pages = $provider->get_pages();
+								}
+								?>
+								<?php if ( count( $fb_pages ) > 0 ) : ?>
+									<div class="gbsocial-fb-connected-pages" style="margin-bottom:12px;">
+										<strong><?php esc_html_e( 'Connected pages:', 'greenberry-social' ); ?></strong>
+										<ul style="margin:4px 0 0 16px;">
+											<?php foreach ( $fb_pages as $fb_page ) : ?>
+												<li>
+													<?php echo esc_html( $fb_page['page_name'] ?: $fb_page['page_id'] ); ?>
+													<code style="font-size:11px;color:#646970;"><?php echo esc_html( $fb_page['page_id'] ); ?></code>
+												</li>
+											<?php endforeach; ?>
+										</ul>
+										<p class="description"><?php esc_html_e( 'Posts will be shared to all pages listed above. Re-authorize or add more pages below.', 'greenberry-social' ); ?></p>
+									</div>
+								<?php endif; ?>
+								<?php if ( $broker_ready ) : ?>
+									<div style="margin-bottom:12px;">
+										<div id="gbsocial-fb-pages-section">
+											<button type="button" class="button" id="gbsocial-load-fb-pages">
+												<?php esc_html_e( 'Add page from broker', 'greenberry-social' ); ?>
+											</button>
+											<div id="gbsocial-fb-pages-list" style="display:none;margin-top:8px;">
+												<select id="gbsocial-fb-page-select" style="min-width:200px;"></select>
+												<button type="button" class="button button-primary" id="gbsocial-fb-page-use">
+													<?php esc_html_e( 'Add This Page', 'greenberry-social' ); ?>
+												</button>
+												<span id="gbsocial-fb-pages-status" style="margin-left:8px;font-size:13px;"></span>
+											</div>
+										</div>
+										<?php $oauth_url = Broker::get_oauth_url( $id ); ?>
+										<?php if ( $oauth_url ) : ?>
+											<p style="margin:8px 0 0;font-size:12px;">
+												<a href="<?php echo esc_url( $oauth_url ); ?>" class="button button-secondary">
+													<?php esc_html_e( 'Re-authorize Facebook (refreshes all pages)', 'greenberry-social' ); ?>
+												</a>
+											</p>
+										<?php endif; ?>
+									</div>
+								<?php endif; ?>
+							<?php endif; ?>
 							<div class="gbsocial-provider-actions">
 								<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline;">
 									<?php wp_nonce_field( 'gbsocial_test_' . $id ); ?>
@@ -349,10 +395,19 @@ final class Admin {
 			return null;
 		}
 
+		if ( 'facebook' === $provider->get_id() ) {
+			$normalized = Providers\Facebook::normalize_credentials( $creds );
+			$pages = $normalized['pages'];
+			if ( empty( $pages ) ) {
+				return null;
+			}
+			$names = array_map( fn( $p ) => $p['page_name'] ?: $p['page_id'], $pages );
+			return implode( ', ', $names );
+		}
+
 		return match ( $provider->get_id() ) {
 			'bluesky'  => $creds['handle'] ?? null,
 			'mastodon' => $creds['instance'] ?? null,
-			'facebook' => $creds['page_name'] ?? ( 'Page ' . ( $creds['page_id'] ?? '' ) ),
 			'linkedin' => $creds['author_urn'] ?? null,
 			'threads'  => $creds['username'] ?? ( 'User ' . ( $creds['user_id'] ?? '' ) ),
 			'tumblr'   => $creds['blog_name'] ? $creds['blog_name'] . '.tumblr.com' : null,
@@ -532,11 +587,31 @@ final class Admin {
 			return new \WP_Error( 'unknown_provider', 'Unknown provider.', [ 'status' => 400 ] );
 		}
 
-		$provider->save_credentials( $result['credentials'] );
+		$credentials = $result['credentials'];
+
+		// Facebook: broker now returns all pages. Normalize to multi-page format.
+		if ( 'facebook' === $result['provider'] && ! empty( $credentials['pages'] ) ) {
+			$credentials = [ 'pages' => $credentials['pages'] ];
+		} elseif ( 'facebook' === $result['provider'] ) {
+			// Legacy single-page response — wrap it.
+			$credentials = Providers\Facebook::normalize_credentials( $credentials );
+		}
+
+		$provider->save_credentials( $credentials );
+
+		$page_count = 0;
+		if ( 'facebook' === $result['provider'] ) {
+			$normalized = Providers\Facebook::normalize_credentials( $credentials );
+			$page_count = count( $normalized['pages'] );
+		}
+
+		$message = $page_count > 1
+			? sprintf( __( '%s connected with %d pages!', 'greenberry-social' ), $provider->get_name(), $page_count )
+			: sprintf( __( '%s connected successfully!', 'greenberry-social' ), $provider->get_name() );
 
 		set_transient( 'gbsocial_notice', [
 			'type'    => 'success',
-			'message' => sprintf( __( '%s connected successfully!', 'greenberry-social' ), $provider->get_name() ),
+			'message' => $message,
 		], 30 );
 
 		wp_safe_redirect( admin_url( 'options-general.php?page=greenberry-social&tab=connections' ) );
@@ -725,14 +800,32 @@ final class Admin {
 			wp_send_json_error( 'Invalid broker response signature.' );
 		}
 
-		// Save credentials.
+		// Add this page to the existing pages (or create new list).
 		$provider = $this->providers->get( 'facebook' );
 		if ( $provider ) {
-			$provider->save_credentials( [
-				'page_id'      => $body['token']['page_id'],
-				'access_token' => $body['token']['access_token'],
-				'page_name'    => $body['token']['page_name'] ?? '',
-			] );
+			$existing = $provider->get_credentials();
+			$normalized = Providers\Facebook::normalize_credentials( $existing ?: [] );
+			$pages = $normalized['pages'];
+
+			// Replace if page already exists, otherwise append.
+			$found = false;
+			foreach ( $pages as $i => $p ) {
+				if ( $p['page_id'] === $body['token']['page_id'] ) {
+					$pages[ $i ]['access_token'] = $body['token']['access_token'];
+					$pages[ $i ]['page_name'] = $body['token']['page_name'] ?? $pages[ $i ]['page_name'];
+					$found = true;
+					break;
+				}
+			}
+			if ( ! $found ) {
+				$pages[] = [
+					'page_id'      => $body['token']['page_id'],
+					'access_token' => $body['token']['access_token'],
+					'page_name'    => $body['token']['page_name'] ?? '',
+				];
+			}
+
+			$provider->save_credentials( [ 'pages' => $pages ] );
 		}
 
 		wp_send_json_success( [ 'page_name' => $body['token']['page_name'] ?? $page_id ] );

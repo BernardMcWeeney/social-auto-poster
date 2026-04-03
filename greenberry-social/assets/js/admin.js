@@ -2,7 +2,7 @@
  * Greenberry Social — Admin JS
  *
  * Handles credential form toggling, manual entry toggles,
- * and Facebook page selection from broker.
+ * and Facebook page selection from broker (supports multi-page).
  */
 (function () {
 	'use strict';
@@ -41,9 +41,9 @@
 				.then(function (result) {
 					if (!result.success) {
 						loadBtn.disabled = false;
-						loadBtn.textContent = 'Select from connected pages';
+						loadBtn.textContent = 'Add page from broker';
 						if (statusEl) {
-							statusEl.textContent = result.data || 'No pages found. Connect Facebook on one site first.';
+							statusEl.textContent = result.data || 'No pages found. Connect Facebook first.';
 							statusEl.style.color = '#d63638';
 						}
 						return;
@@ -65,7 +65,7 @@
 				})
 				.catch(function (err) {
 					loadBtn.disabled = false;
-					loadBtn.textContent = 'Select from connected pages';
+					loadBtn.textContent = 'Add page from broker';
 					if (statusEl) {
 						statusEl.textContent = 'Error: ' + err.message;
 						statusEl.style.color = '#d63638';
@@ -80,7 +80,7 @@
 			if (!pageId) return;
 
 			useBtn.disabled = true;
-			statusEl.textContent = 'Connecting...';
+			statusEl.textContent = 'Adding page...';
 			statusEl.style.color = '#646970';
 
 			var nonce = (window.gbsocialAdmin || {}).fbPagesNonce || '';
@@ -93,7 +93,7 @@
 				.then(function (r) { return r.json(); })
 				.then(function (result) {
 					if (result.success) {
-						statusEl.textContent = 'Connected to ' + (result.data.page_name || pageId) + '! Reloading...';
+						statusEl.textContent = 'Added ' + (result.data.page_name || pageId) + '! Reloading...';
 						statusEl.style.color = '#00a32a';
 						setTimeout(function () { location.reload(); }, 1000);
 					} else {

@@ -9,9 +9,12 @@ use Greenberry\Social\Crypto;
 /**
  * Facebook Pages — Graph API v21.
  *
- * When a token fails (e.g. because another site re-authorized the same
- * Facebook account), the provider automatically fetches the latest token
- * from the broker's central token store and retries.
+ * Supports posting to multiple Facebook Pages from a single WordPress site.
+ * Credentials are stored as:
+ *   { pages: [ { page_id, access_token, page_name }, ... ] }
+ *
+ * Backward-compatible with the legacy single-page format:
+ *   { page_id, access_token, page_name }
  */
 class Facebook extends Provider {
 
@@ -39,18 +42,90 @@ class Facebook extends Provider {
 			'access_token' => [
 				'label' => 'Page Access Token',
 				'type'  => 'password',
-				'help'  => 'A long-lived Page Access Token. Can be generated via the broker or pasted manually.',
+				'help'  => 'A long-lived Page Access Token.',
 			],
 		];
 	}
 
+	/**
+	 * Normalize credentials to the multi-page format.
+	 *
+	 * Accepts either:
+	 *  - New format: { pages: [ { page_id, access_token, page_name }, ... ] }
+	 *  - Legacy format: { page_id, access_token, page_name }
+	 *
+	 * Always returns the multi-page format.
+	 */
+	public static function normalize_credentials( array $credentials ): array {
+		if ( ! empty( $credentials['pages'] ) && is_array( $credentials['pages'] ) ) {
+			return $credentials;
+		}
+
+		// Legacy single-page format — wrap it.
+		if ( ! empty( $credentials['page_id'] ) && ! empty( $credentials['access_token'] ) ) {
+			return [
+				'pages' => [ [
+					'page_id'      => $credentials['page_id'],
+					'access_token' => $credentials['access_token'],
+					'page_name'    => $credentials['page_name'] ?? '',
+				] ],
+			];
+		}
+
+		return [ 'pages' => [] ];
+	}
+
+	/**
+	 * Get all stored pages (normalized).
+	 *
+	 * @return array[] Array of page arrays with page_id, access_token, page_name.
+	 */
+	public function get_pages(): array {
+		$creds = $this->get_credentials();
+		if ( ! $creds ) {
+			return [];
+		}
+		$normalized = self::normalize_credentials( $creds );
+		return $normalized['pages'];
+	}
+
 	public function test_connection( array $credentials ) {
+		$normalized = self::normalize_credentials( $credentials );
+		$pages = $normalized['pages'];
+
+		if ( empty( $pages ) ) {
+			return new \WP_Error( 'facebook_auth', 'No Facebook pages configured.' );
+		}
+
+		// Test the first page as a representative check.
+		$page = $pages[0];
+		$res = $this->test_single_page( $page );
+
+		if ( is_wp_error( $res ) ) {
+			// Try refreshing from broker.
+			$refreshed = $this->refresh_token_from_broker( $page['page_id'] );
+			if ( $refreshed ) {
+				$page['access_token'] = $refreshed;
+				$pages[0] = $page;
+				$retry = $this->test_single_page( $page );
+				if ( ! is_wp_error( $retry ) ) {
+					$this->save_credentials( [ 'pages' => $pages ] );
+					return true;
+				}
+			}
+			return $res;
+		}
+
+		return true;
+	}
+
+	private function test_single_page( array $page ) {
 		$res = $this->http(
 			sprintf(
 				'https://graph.facebook.com/%s/%s?fields=name,id&access_token=%s',
 				self::API_VERSION,
-				$credentials['page_id'],
-				$credentials['access_token']
+				$page['page_id'],
+				$page['access_token']
 			),
 			[ 'method' => 'GET' ]
 		);
@@ -59,61 +134,71 @@ class Facebook extends Provider {
 			return $res;
 		}
 		if ( $res['code'] !== 200 ) {
-			// Token might be stale — try refreshing from broker.
-			$refreshed = $this->refresh_token_from_broker( $credentials['page_id'] );
-			if ( $refreshed ) {
-				$credentials['access_token'] = $refreshed;
-				$this->save_credentials( $credentials );
-
-				// Retry with refreshed token.
-				$retry = $this->http(
-					sprintf(
-						'https://graph.facebook.com/%s/%s?fields=name,id&access_token=%s',
-						self::API_VERSION,
-						$credentials['page_id'],
-						$refreshed
-					),
-					[ 'method' => 'GET' ]
-				);
-				if ( ! is_wp_error( $retry ) && $retry['code'] === 200 ) {
-					return true;
-				}
-			}
-
 			$msg = $res['body']['error']['message'] ?? 'Invalid credentials.';
 			return new \WP_Error( 'facebook_auth', $msg );
 		}
 		return true;
 	}
 
+	/**
+	 * Share a post to ALL configured Facebook pages.
+	 */
 	public function share( \WP_Post $post, string $message, array $credentials ) {
-		$result = $this->do_share( $post, $message, $credentials );
+		$normalized = self::normalize_credentials( $credentials );
+		$pages = $normalized['pages'];
 
-		// If it failed with a token error, try refreshing from the broker.
-		if ( is_wp_error( $result ) && $this->is_token_error( $result ) ) {
-			$refreshed = $this->refresh_token_from_broker( $credentials['page_id'] );
-			if ( $refreshed && $refreshed !== $credentials['access_token'] ) {
-				$credentials['access_token'] = $refreshed;
-				$this->save_credentials( $credentials );
-				$result = $this->do_share( $post, $message, $credentials );
+		if ( empty( $pages ) ) {
+			return new \WP_Error( 'facebook_no_pages', 'No Facebook pages configured.' );
+		}
+
+		$errors = [];
+		$any_success = false;
+		$updated = false;
+
+		foreach ( $pages as $i => $page ) {
+			$result = $this->do_share( $post, $message, $page );
+
+			// If token error, try refreshing from the broker.
+			if ( is_wp_error( $result ) && $this->is_token_error( $result ) ) {
+				$refreshed = $this->refresh_token_from_broker( $page['page_id'] );
+				if ( $refreshed && $refreshed !== $page['access_token'] ) {
+					$pages[ $i ]['access_token'] = $refreshed;
+					$updated = true;
+					$result = $this->do_share( $post, $message, $pages[ $i ] );
+				}
+			}
+
+			if ( true === $result ) {
+				$any_success = true;
+			} elseif ( is_wp_error( $result ) ) {
+				$errors[] = ( $page['page_name'] ?: $page['page_id'] ) . ': ' . $result->get_error_message();
 			}
 		}
 
-		return $result;
+		// Persist any refreshed tokens.
+		if ( $updated ) {
+			$this->save_credentials( [ 'pages' => $pages ] );
+		}
+
+		if ( $any_success ) {
+			return true;
+		}
+
+		return new \WP_Error( 'facebook_post', implode( '; ', $errors ) );
 	}
 
-	private function do_share( \WP_Post $post, string $message, array $credentials ) {
+	private function do_share( \WP_Post $post, string $message, array $page ) {
 		$res = $this->http(
 			sprintf(
 				'https://graph.facebook.com/%s/%s/feed',
 				self::API_VERSION,
-				$credentials['page_id']
+				$page['page_id']
 			),
 			[
 				'method'  => 'POST',
 				'headers' => [
 					'Content-Type'  => 'application/json',
-					'Authorization' => 'Bearer ' . $credentials['access_token'],
+					'Authorization' => 'Bearer ' . $page['access_token'],
 				],
 				'body'    => wp_json_encode( [
 					'message' => $message,
@@ -142,19 +227,15 @@ class Facebook extends Provider {
 	private function is_token_error( \WP_Error $error ): bool {
 		$data = $error->get_error_data();
 		$fb_code = $data['fb_error_code'] ?? 0;
-		// 190 = expired/invalid token, 102 = API session expired.
 		if ( in_array( $fb_code, [ 190, 102 ], true ) ) {
 			return true;
 		}
-		// Also check the error message for common token errors.
 		$msg = strtolower( $error->get_error_message() );
 		return str_contains( $msg, 'token' ) || str_contains( $msg, 'session' ) || str_contains( $msg, 'expired' );
 	}
 
 	/**
 	 * Fetch the latest token for a Facebook page from the broker.
-	 *
-	 * @return string|null The refreshed access token, or null on failure.
 	 */
 	private function refresh_token_from_broker( string $page_id ): ?string {
 		$secret  = Broker::get_site_secret();
@@ -188,7 +269,6 @@ class Facebook extends Provider {
 			return null;
 		}
 
-		// Verify the broker's response signature.
 		$response_payload = wp_json_encode( $body['token'] );
 		if ( ! Crypto::hmac_verify( $response_payload, $body['signature'], $secret ) ) {
 			return null;

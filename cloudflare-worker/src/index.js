@@ -68,27 +68,34 @@ const PROVIDERS = {
 				throw new Error('Could not get permanent page tokens. Check app permissions.');
 			}
 
-			// Step 4: Store every permanent page token in KV.
-			// These tokens survive re-authorization from other sites.
+			// Step 4: Store every permanent page token in KV, scoped to this site.
+			// Each site gets its own copy so re-authorization on one site
+			// never overwrites tokens used by another site.
+			const siteId = tokenData._site_id;
 			for (const page of permanentPages) {
-				await env.SITES.put(`fb_page:${page.page_id}`, JSON.stringify({
+				const pageData = JSON.stringify({
 					page_id: page.page_id,
 					page_name: page.page_name,
 					access_token: page.access_token,
 					updated_at: new Date().toISOString(),
-				}));
+				});
+				// Per-site scoped key (primary).
+				if (siteId) {
+					await env.SITES.put(`fb_page:${siteId}:${page.page_id}`, pageData);
+				}
 			}
 
-			// Return the first page (or requested page) for this site.
-			const requestedPageId = tokenData._requested_page_id;
-			const selected = requestedPageId
-				? permanentPages.find(p => p.page_id === requestedPageId) || permanentPages[0]
-				: permanentPages[0];
-
+			// Return ALL pages so the plugin can store and let the user choose.
 			return {
-				page_id: selected.page_id,
-				access_token: selected.access_token,
-				page_name: selected.page_name,
+				pages: permanentPages.map(p => ({
+					page_id: p.page_id,
+					page_name: p.page_name,
+					access_token: p.access_token,
+				})),
+				// Keep backward-compatible single-page fields for older plugin versions.
+				page_id: permanentPages[0].page_id,
+				access_token: permanentPages[0].access_token,
+				page_name: permanentPages[0].page_name,
 			};
 		},
 	},
@@ -496,6 +503,8 @@ async function handleCallback(providerName, url, env) {
 
 	// Pass app secret for providers that need it (e.g., Threads long-lived exchange).
 	tokenData._app_secret = clientSecret;
+	// Pass site_id so Facebook can scope token storage per-site.
+	tokenData._site_id = brokerState.site_id;
 
 	// Get platform-specific credentials.
 	let credentials;
@@ -550,8 +559,12 @@ async function handleTokenRefresh(pageId, url, env) {
 		return jsonResponse({ error: 'Invalid signature.' }, 403);
 	}
 
-	// Look up the latest token from KV.
-	const tokenJson = await env.SITES.get(`fb_page:${pageId}`);
+	// Look up the latest token from KV (per-site scoped first, then legacy global).
+	let tokenJson = await env.SITES.get(`fb_page:${siteData.site_id}:${pageId}`);
+	if (!tokenJson) {
+		// Fallback to legacy unscoped key for backward compatibility.
+		tokenJson = await env.SITES.get(`fb_page:${pageId}`);
+	}
 	if (!tokenJson) {
 		return jsonResponse({ error: 'No token found for this page.' }, 404);
 	}
@@ -595,8 +608,8 @@ async function handleListPages(url, env) {
 		return jsonResponse({ error: 'Invalid signature.' }, 403);
 	}
 
-	// List all fb_page:* keys from KV.
-	const list = await env.SITES.list({ prefix: 'fb_page:' });
+	// List pages scoped to this site only (prevents cross-site data leakage).
+	const list = await env.SITES.list({ prefix: `fb_page:${siteData.site_id}:` });
 	const pages = [];
 	for (const key of list.keys) {
 		const data = await env.SITES.get(key.name);
