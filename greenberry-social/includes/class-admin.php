@@ -39,6 +39,8 @@ final class Admin {
 		add_action( 'admin_post_gbsocial_save_credentials', [ $this, 'handle_save_credentials' ] );
 		add_action( 'admin_post_gbsocial_disconnect', [ $this, 'handle_disconnect' ] );
 		add_action( 'admin_post_gbsocial_test_connection', [ $this, 'handle_test_connection' ] );
+		add_action( 'wp_ajax_gbsocial_list_fb_pages', [ $this, 'ajax_list_fb_pages' ] );
+		add_action( 'wp_ajax_gbsocial_use_fb_page', [ $this, 'ajax_use_fb_page' ] );
 		add_action( 'rest_api_init', [ $this, 'register_oauth_callback' ] );
 
 		// Posts list column.
@@ -65,6 +67,9 @@ final class Admin {
 		}
 		wp_enqueue_style( 'gbsocial-admin', GBSOCIAL_URL . 'assets/css/admin.css', [], GBSOCIAL_VERSION );
 		wp_enqueue_script( 'gbsocial-admin', GBSOCIAL_URL . 'assets/js/admin.js', [], GBSOCIAL_VERSION, true );
+		wp_localize_script( 'gbsocial-admin', 'gbsocialAdmin', [
+			'fbPagesNonce' => wp_create_nonce( 'gbsocial_fb_pages' ),
+		] );
 	}
 
 	public function register_settings(): void {
@@ -178,6 +183,23 @@ final class Admin {
 								<?php $oauth_url = Broker::get_oauth_url( $id ); ?>
 								<?php if ( $oauth_url ) : ?>
 									<div class="gbsocial-oauth-section">
+										<?php if ( $id === 'facebook' ) : ?>
+											<?php // Facebook: show "Use existing page" first to avoid re-auth issues ?>
+											<div id="gbsocial-fb-pages-section" style="margin-bottom:12px;">
+												<button type="button" class="button" id="gbsocial-load-fb-pages">
+													<?php esc_html_e( 'Select from connected pages', 'greenberry-social' ); ?>
+												</button>
+												<div id="gbsocial-fb-pages-list" style="display:none;margin-top:8px;">
+													<select id="gbsocial-fb-page-select" style="min-width:200px;"></select>
+													<button type="button" class="button button-primary" id="gbsocial-fb-page-use">
+														<?php esc_html_e( 'Use This Page', 'greenberry-social' ); ?>
+													</button>
+													<span id="gbsocial-fb-pages-status" style="margin-left:8px;font-size:13px;"></span>
+												</div>
+												<p class="description"><?php esc_html_e( 'If you already connected Facebook on another site, pick your page here without re-authorizing.', 'greenberry-social' ); ?></p>
+											</div>
+											<p style="margin:8px 0;color:#646970;font-size:12px;">&mdash; <?php esc_html_e( 'or authorize a new connection', 'greenberry-social' ); ?> &mdash;</p>
+										<?php endif; ?>
 										<a href="<?php echo esc_url( $oauth_url ); ?>" class="button button-primary">
 											<?php printf( esc_html__( 'Connect with %s', 'greenberry-social' ), esc_html( $provider->get_name() ) ); ?>
 										</a>
@@ -620,5 +642,99 @@ final class Admin {
 			$type = $notice['type'] === 'success' ? 'updated' : 'error';
 			printf( '<div class="notice %s is-dismissible"><p>%s</p></div>', esc_attr( $type ), esc_html( $notice['message'] ) );
 		}
+	}
+
+	/* ── Facebook: list/use pages from broker ─────────────── */
+
+	public function ajax_list_fb_pages(): void {
+		check_ajax_referer( 'gbsocial_fb_pages' );
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( 'Unauthorized.' );
+		}
+
+		$secret  = Broker::get_site_secret();
+		$site_id = get_option( 'gbsocial_site_id', '' );
+		if ( ! $secret || ! $site_id ) {
+			wp_send_json_error( 'Not registered with broker.' );
+		}
+
+		$timestamp = time();
+		$payload   = 'list_pages:' . $timestamp;
+		$signature = Crypto::hmac( $payload, $secret );
+
+		$url = GBSOCIAL_BROKER_URL . '/pages/facebook?' . http_build_query( [
+			'site_id' => $site_id,
+			'ts'      => $timestamp,
+			'sig'     => $signature,
+		] );
+
+		$response = wp_remote_get( $url, [ 'timeout' => 10 ] );
+		if ( is_wp_error( $response ) ) {
+			wp_send_json_error( $response->get_error_message() );
+		}
+
+		$body = json_decode( wp_remote_retrieve_body( $response ), true );
+		if ( empty( $body['pages'] ) ) {
+			wp_send_json_error( 'No pages found. Connect Facebook on at least one site first.' );
+		}
+
+		wp_send_json_success( $body['pages'] );
+	}
+
+	public function ajax_use_fb_page(): void {
+		check_ajax_referer( 'gbsocial_fb_pages' );
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( 'Unauthorized.' );
+		}
+
+		$page_id = sanitize_text_field( $_POST['page_id'] ?? '' );
+		if ( ! $page_id ) {
+			wp_send_json_error( 'Missing page_id.' );
+		}
+
+		// Fetch the token from the broker.
+		$secret  = Broker::get_site_secret();
+		$site_id = get_option( 'gbsocial_site_id', '' );
+		if ( ! $secret || ! $site_id ) {
+			wp_send_json_error( 'Not registered with broker.' );
+		}
+
+		$timestamp = time();
+		$payload   = 'token:' . $page_id . ':' . $timestamp;
+		$signature = Crypto::hmac( $payload, $secret );
+
+		$url = GBSOCIAL_BROKER_URL . '/token/facebook/' . $page_id . '?' . http_build_query( [
+			'site_id' => $site_id,
+			'ts'      => $timestamp,
+			'sig'     => $signature,
+		] );
+
+		$response = wp_remote_get( $url, [ 'timeout' => 10 ] );
+		if ( is_wp_error( $response ) ) {
+			wp_send_json_error( $response->get_error_message() );
+		}
+
+		$body = json_decode( wp_remote_retrieve_body( $response ), true );
+		if ( empty( $body['token']['access_token'] ) ) {
+			wp_send_json_error( 'Could not get token for this page.' );
+		}
+
+		// Verify signature.
+		$response_payload = wp_json_encode( $body['token'] );
+		if ( ! Crypto::hmac_verify( $response_payload, $body['signature'] ?? '', $secret ) ) {
+			wp_send_json_error( 'Invalid broker response signature.' );
+		}
+
+		// Save credentials.
+		$provider = $this->providers->get( 'facebook' );
+		if ( $provider ) {
+			$provider->save_credentials( [
+				'page_id'      => $body['token']['page_id'],
+				'access_token' => $body['token']['access_token'],
+				'page_name'    => $body['token']['page_name'] ?? '',
+			] );
+		}
+
+		wp_send_json_success( [ 'page_name' => $body['token']['page_name'] ?? $page_id ] );
 	}
 }

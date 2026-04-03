@@ -250,6 +250,11 @@ export default {
 			return handleTokenRefresh(tokenMatch[1], url, env);
 		}
 
+		// GET /pages/facebook — list all stored Facebook page tokens.
+		if (path === '/pages/facebook' && request.method === 'GET') {
+			return handleListPages(url, env);
+		}
+
 		// GET /callback/{provider} — handle OAuth callback from platform.
 		const callbackMatch = path.match(/^\/callback\/([a-z]+)$/);
 		if (callbackMatch && request.method === 'GET') {
@@ -561,6 +566,54 @@ async function handleTokenRefresh(pageId, url, env) {
 		token: tokenData,
 		signature: responseSig,
 	});
+}
+
+/* ── List stored Facebook pages ─────────────────────────── */
+
+async function handleListPages(url, env) {
+	const siteId = url.searchParams.get('site_id');
+	const timestamp = url.searchParams.get('ts');
+	const signature = url.searchParams.get('sig');
+
+	if (!siteId || !timestamp || !signature) {
+		return jsonResponse({ error: 'Missing site_id, ts, or sig.' }, 400);
+	}
+
+	const siteDataJson = await env.SITES.get(`site:${siteId}`);
+	if (!siteDataJson) {
+		return jsonResponse({ error: 'Site not registered.' }, 403);
+	}
+	const siteData = JSON.parse(siteDataJson);
+
+	if (Math.abs(Date.now() / 1000 - parseInt(timestamp, 10)) > 600) {
+		return jsonResponse({ error: 'Request expired.' }, 400);
+	}
+
+	const payload = `list_pages:${timestamp}`;
+	const valid = await hmacVerify(payload, signature, siteData.site_secret);
+	if (!valid) {
+		return jsonResponse({ error: 'Invalid signature.' }, 403);
+	}
+
+	// List all fb_page:* keys from KV.
+	const list = await env.SITES.list({ prefix: 'fb_page:' });
+	const pages = [];
+	for (const key of list.keys) {
+		const data = await env.SITES.get(key.name);
+		if (data) {
+			const parsed = JSON.parse(data);
+			pages.push({
+				page_id: parsed.page_id,
+				page_name: parsed.page_name,
+				updated_at: parsed.updated_at,
+			});
+		}
+	}
+
+	const responsePayload = JSON.stringify(pages);
+	const responseSig = await hmacSign(responsePayload, siteData.site_secret);
+
+	return jsonResponse({ pages, signature: responseSig });
 }
 
 /* ── Helpers ────────────────────────────────────────────── */
