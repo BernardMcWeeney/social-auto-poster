@@ -20,7 +20,7 @@ define( 'GBSOCIAL_VERSION', '1.0.0' );
 define( 'GBSOCIAL_FILE', __FILE__ );
 define( 'GBSOCIAL_DIR', plugin_dir_path( __FILE__ ) );
 define( 'GBSOCIAL_URL', plugin_dir_url( __FILE__ ) );
-define( 'GBSOCIAL_BROKER_URL', 'https://social-oauth.greenberry.ie' );
+define( 'GBSOCIAL_BROKER_URL', 'https://social-oauth-broker.greenberry.workers.dev' );
 
 /**
  * PSR-4-style autoloader — no Composer needed.
